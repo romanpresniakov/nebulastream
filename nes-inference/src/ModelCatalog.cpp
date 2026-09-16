@@ -99,7 +99,7 @@ void ModelCatalog::registerModel(std::string name, std::filesystem::path path, M
             if (fields.size() != tensorShapes.size())
             {
                 throw NES::CannotLoadModel(
-                    "Model '{}' {}: declared {} varsized field(s) but has {} element(s)",
+                    "Model '{}' {}: declared {} varsized field(s) but has {} tensor(s)",
                     name,
                     magic_enum::enum_name(role),
                     fields.size(),

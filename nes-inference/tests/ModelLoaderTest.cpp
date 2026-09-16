@@ -135,6 +135,50 @@ TEST(ModelLoaderTest, LoadsExpansionModel)
     EXPECT_FALSE(result->empty());
 }
 
+/// Each input tensor keeps its own shape, in the model's declaration order. The two inputs
+/// have different shapes so that a reordering would be visible.
+TEST(ModelLoaderTest, LoadsModelWithTwoInputs)
+{
+    if (!inferenceEnabled())
+    {
+        GTEST_SKIP() << "OpenVINO import unavailable in this environment";
+    }
+
+    /// tiny_two_inputs.onnx: Concat(a [1,2], b [1,3]) -> y [1,5]
+    const std::string path = std::string(INFERENCE_TEST_DATA) + "/tiny_two_inputs.onnx";
+    auto imported = importModel(path);
+    ASSERT_TRUE(imported.has_value()) << "Failed to import model: " << imported.error().message;
+    ASSERT_EQ(imported->getInputShapes().size(), 2U);
+    EXPECT_EQ(imported->getInputShape(0), (std::vector<size_t>{1, 2}));
+    EXPECT_EQ(imported->getInputShape(1), (std::vector<size_t>{1, 3}));
+    EXPECT_EQ(imported->getNDims(), (std::vector<size_t>{2, 2}));
+    EXPECT_EQ(imported->getOutputShape(), (std::vector<size_t>{1, 5}));
+
+    auto compiled = compileModel(*imported);
+    ASSERT_TRUE(compiled.has_value()) << "Failed to compile model: " << (compiled ? "" : compiled.error().message);
+    ASSERT_EQ(compiled->getInputShapes().size(), 2U);
+    EXPECT_EQ(compiled->getInputShape(0), (std::vector<size_t>{1, 2}));
+    EXPECT_EQ(compiled->getInputShape(1), (std::vector<size_t>{1, 3}));
+    /// The input size spans all input tensors: (2 + 3) * sizeof(float).
+    EXPECT_EQ(compiled->inputSize(), 20U);
+    EXPECT_EQ(compiled->outputSize(), 20U);
+}
+
+/// Multiple inputs are allowed, but the output side remains restricted to a single tensor
+TEST(ModelLoaderTest, LoadModelWithTwoOutputsIsRejected)
+{
+    if (!inferenceEnabled())
+    {
+        GTEST_SKIP() << "OpenVINO import unavailable in this environment";
+    }
+
+    /// tiny_two_outputs.onnx: x [1,4] -> Identity -> y0 [1,4], Identity -> y1 [1,4]
+    const std::string path = std::string(INFERENCE_TEST_DATA) + "/tiny_two_outputs.onnx";
+    auto imported = importModel(path);
+    ASSERT_FALSE(imported.has_value());
+    EXPECT_NE(imported.error().message.find("exactly one model output"), std::string::npos) << imported.error().message;
+}
+
 TEST(ModelLoaderTest, LoadsTensorFlowFrozenGraph)
 {
     expectLoadsTinyModel("tiny_1_to_1.pb");
@@ -202,7 +246,7 @@ TEST(ModelLoaderTest, LoadModelWithDynamicBatchResolvesToOne)
     const std::string path = std::string(INFERENCE_TEST_DATA) + "/tiny_dynamic_batch.onnx";
     auto imported = importModel(path);
     ASSERT_TRUE(imported.has_value()) << imported.error().message;
-    EXPECT_EQ(imported->getInputShape(), (std::vector<size_t>{1, 100}));
+    EXPECT_EQ(imported->getInputShape(0), (std::vector<size_t>{1, 100}));
     EXPECT_EQ(imported->getOutputShape(), (std::vector<size_t>{1, 100}));
 }
 

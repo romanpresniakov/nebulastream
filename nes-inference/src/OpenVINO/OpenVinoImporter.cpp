@@ -293,7 +293,7 @@ std::expected<ImportedModel, ImportError> OpenVinoImporter::importModel(const st
         auto model = core.read_model(xmlContent, weightsTensor);
         if (model->outputs().size() != 1)
         {
-            return std::unexpected(ImportError{"Multiple outputs detected. OpenVINO inference supports an arbitrary number of positive model inputs and exactly one model output"});
+            return std::unexpected(ImportError{fmt::format("OpenVINO inference requires exactly one model output, but found {}", model->outputs().size())});
         }
 
         if (model->inputs().empty()) {

@@ -1,0 +1,39 @@
+# name: inference/InferModelMultipleInputs.test
+# description: ML model inference with MODEL_INFERENCE TVF on a model with two VARSIZED input tensors
+# groups: [Inference]
+
+# add_two_inputs.onnx computes sum = a + b over two float32 tensors of shape [1,4].
+# Each column carries one input tensor as 16 bytes of little-endian float32, base64-encoded:
+#   id 1: a = [1, 2, 3, 4]            b = [10, 20, 30, 40]
+#   id 2: a = [0.5, -1.5, 2.25, -8]   b = [0.25, 1.5, -2.25, 100]
+#   id 3: a = [0, 0, 0, 0]            b = [-7, 3.125, 1000, -0.5]
+CREATE LOGICAL SOURCE stream(id UINT64 NOT NULL, a VARSIZED NOT NULL, b VARSIZED NOT NULL);
+CREATE PHYSICAL SOURCE FOR stream TYPE File;
+ATTACH INLINE
+1,AACAPwAAAEAAAEBAAACAQA==,AAAgQQAAoEEAAPBBAAAgQg==
+2,AAAAPwAAwL8AABBAAAAAwQ==,AACAPgAAwD8AABDAAADIQg==
+3,AAAAAAAAAAAAAAAAAAAAAA==,AADgwAAASEAAAHpEAAAAvw==
+
+CREATE MODEL addTwoInputs ('model/add_two_inputs.onnx')
+INPUT (a VARSIZED, b VARSIZED)
+OUTPUT (s0 FLOAT32, s1 FLOAT32, s2 FLOAT32, s3 FLOAT32);
+
+CREATE SINK result(id UINT64 NOT NULL, s0 FLOAT32 NOT NULL, s1 FLOAT32 NOT NULL, s2 FLOAT32 NOT NULL, s3 FLOAT32 NOT NULL) TYPE File;
+CREATE SINK positiveLast(id UINT64 NOT NULL, s0 FLOAT32 NOT NULL, s1 FLOAT32 NOT NULL, s2 FLOAT32 NOT NULL, s3 FLOAT32 NOT NULL) TYPE File;
+
+SELECT id, s0, s1, s2, s3
+FROM MODEL_INFERENCE(addTwoInputs, (SELECT id, FROM_BASE64(a) AS a, FROM_BASE64(b) AS b FROM stream))
+INTO result;
+----
+1,11.000000,22.000000,33.000000,44.000000
+2,0.750000,0.000000,0.000000,92.000000
+3,-7.000000,3.125000,1000.000000,-0.500000
+
+# Filter on the model output: keep rows whose last sum is positive, which drops id 3 (-0.5).
+SELECT id, s0, s1, s2, s3
+FROM MODEL_INFERENCE(addTwoInputs, (SELECT id, FROM_BASE64(a) AS a, FROM_BASE64(b) AS b FROM stream))
+WHERE s3 > 0
+INTO positiveLast;
+----
+1,11.000000,22.000000,33.000000,44.000000
+2,0.750000,0.000000,0.000000,92.000000

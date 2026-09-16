@@ -25,8 +25,10 @@
 
 #include <OpenVINO/OpenVinoImporter.hpp>
 #include <gtest/gtest.h>
+#include <ErrorHandling.hpp>
 #include <Inference.hpp>
 #include <Model.hpp>
+#include <OpenVinoRuntimeBackend.hpp>
 
 namespace NES
 {
@@ -73,6 +75,26 @@ std::vector<float> ascending(size_t count)
     /// NOLINTNEXTLINE(modernize-use-ranges) std::ranges::iota not yet available in libc++
     std::iota(values.begin(), values.end(), 1.0F);
     return values;
+}
+
+/// Runs `infer` on a fresh backend with caller-sized buffers and returns the failure message,
+/// or an empty string if inference did not throw InferenceRuntimeFailure.
+std::string inferFailureMessage(const CompiledModel& model, size_t inputBufferSize, size_t outputBufferSize)
+{
+    OpenVinoRuntimeBackend backend;
+    backend.setup(model);
+    std::vector<std::byte> input(inputBufferSize);
+    std::vector<std::byte> output(outputBufferSize);
+    try
+    {
+        backend.infer(input.data(), input.size(), output.data(), output.size());
+    }
+    catch (const Exception& ex)
+    {
+        EXPECT_EQ(ex.code(), ErrorCode::InferenceRuntimeFailure);
+        return ex.what();
+    }
+    return {};
 }
 
 }
@@ -122,6 +144,61 @@ TEST(InferenceRuntimeTest, DifferentModelsDoNotShareACacheEntry)
 
     /// And back again: the identity model must not have been displaced by the reduction one.
     EXPECT_EQ(runInference(*identity, input), input);
+}
+
+/// The input buffer holds all input tensors back to back, in the model's declaration order.
+/// tiny_two_inputs.onnx concatenates a [1,2] and b [1,3], so the output mirrors the input
+/// buffer exactly when every tensor is bound to the right slice.
+TEST(InferenceRuntimeTest, InfersModelWithTwoInputs)
+{
+    if (!inferenceEnabled())
+    {
+        GTEST_SKIP() << "OpenVINO import unavailable in this environment";
+    }
+
+    auto twoInputs = load("tiny_two_inputs.onnx");
+    ASSERT_TRUE(twoInputs.has_value()) << twoInputs.error();
+
+    InferenceRuntime runtime;
+    runtime.setup(*twoInputs);
+    ASSERT_EQ(runtime.getInputSize(), 5 * sizeof(float));
+
+    const std::vector<float> input{1.0F, 2.0F, 10.0F, 20.0F, 30.0F};
+    EXPECT_EQ(runInference(*twoInputs, input), input);
+}
+
+/// When the buffer runs out part-way through, the error names the input tensor that did not fit.
+TEST(InferenceRuntimeTest, InputBufferTooSmallNamesTheTensor)
+{
+    if (!inferenceEnabled())
+    {
+        GTEST_SKIP() << "OpenVINO import unavailable in this environment";
+    }
+
+    auto twoInputs = load("tiny_two_inputs.onnx");
+    ASSERT_TRUE(twoInputs.has_value()) << twoInputs.error();
+
+    /// Room for tensor 0 (8 B) and half of tensor 1 (12 B).
+    const auto secondMissing = inferFailureMessage(*twoInputs, 14, twoInputs->outputSize());
+    EXPECT_NE(secondMissing.find("Input tensor 1 needs 12 B, but only 6 B"), std::string::npos) << secondMissing;
+
+    /// Not even tensor 0 fits.
+    const auto firstMissing = inferFailureMessage(*twoInputs, 4, twoInputs->outputSize());
+    EXPECT_NE(firstMissing.find("Input tensor 0 needs 8 B, but only 4 B"), std::string::npos) << firstMissing;
+}
+
+TEST(InferenceRuntimeTest, OutputBufferTooSmallIsRejected)
+{
+    if (!inferenceEnabled())
+    {
+        GTEST_SKIP() << "OpenVINO import unavailable in this environment";
+    }
+
+    auto twoInputs = load("tiny_two_inputs.onnx");
+    ASSERT_TRUE(twoInputs.has_value()) << twoInputs.error();
+
+    const auto message = inferFailureMessage(*twoInputs, twoInputs->inputSize(), twoInputs->outputSize() - 1);
+    EXPECT_NE(message.find("insufficient for model output size 20 B"), std::string::npos) << message;
 }
 
 }

@@ -59,6 +59,10 @@ private:
     std::shared_ptr<detail::ThreadLocalRuntimeWrapper> threadLocal;
     std::vector<QualifiedIdentifier> inputFieldNames;
     std::vector<QualifiedIdentifier> outputFieldNames;
+    /// Fixed byte size of each model input tensor, in the model's input order. This is the
+    /// contract the runtime lays the input buffer out by, so it — not the size of the incoming
+    /// record field — determines where each tensor is written.
+    std::vector<size_t> inputByteSizes;
     size_t outputSize;
     bool varsizedInput;
     bool varsizedOutput;

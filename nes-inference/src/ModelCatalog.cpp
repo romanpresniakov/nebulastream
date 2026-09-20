@@ -15,23 +15,26 @@
 #include <ModelCatalog.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <numeric>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 #include <magic_enum/magic_enum.hpp>
 
 #include <DataTypes/DataType.hpp>
-#include <DataTypes/UnboundField.hpp>
 #include <ErrorHandling.hpp>
 #include <Inference.hpp>
-#include <Model.hpp>
 
 namespace NES
 {
+
+enum class Role : std::uint8_t {
+    Input, Output
+};
+
+using enum Role;
 
 void ModelCatalog::registerModel(std::string name, std::filesystem::path path, ModelSchema schema)
 {
@@ -84,7 +87,7 @@ void ModelCatalog::registerModel(std::string name, std::filesystem::path path, M
             }
         }
 
-        if (hasVarsized && fields.size() != 1 && role == Role::Output)
+        if (hasVarsized && fields.size() != 1 && role == Output)
         {
             throw NES::CannotLoadModel(
                 "Model '{}' {}: VARSIZED requires exactly one {} field but got {}",
@@ -133,8 +136,8 @@ void ModelCatalog::registerModel(std::string name, std::filesystem::path path, M
             }
         }
     };
-    validateSide(schema.inputs, imported->getInputShapes(), Role::Input);
-    validateSide(schema.outputs, {imported->getOutputShape()}, Role::Output);
+    validateSide(schema.inputs, imported->getInputShapes(), Input);
+    validateSide(schema.outputs, {imported->getOutputShape()}, Output);
 
     auto registered = RegisteredModel{name, std::move(path), std::move(*imported), std::move(schema)};
     entries.insert_or_assign(std::move(name), std::move(registered));

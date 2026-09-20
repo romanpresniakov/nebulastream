@@ -777,6 +777,46 @@ TEST_F(InferModelPhysicalOperatorTest, VarsizedOutputCorrectness)
     }
 }
 
+/// A VARSIZED input whose byte size does not match the model's fixed input tensor must be
+/// rejected instead of silently corrupting the memory.
+TEST_F(InferModelPhysicalOperatorTest, WrongSizedVarsizedInputIsRejected)
+{
+    if (!identityModel.has_value())
+    {
+        GTEST_SKIP() << "Identity model unavailable in this environment";
+    }
+    constexpr size_t modelInputFloats = 100;
+    constexpr size_t wrongInputFloats = 50;
+    const auto outputFieldNames = makeOutputFieldNames(modelInputFloats);
+    const auto [inputSchema, outputSchema] = makeSchemas(outputFieldNames);
+    auto inputBuffer = createInputBuffer(inputSchema, {makeFloats(wrongInputFloats)});
+
+    auto [pipeline, handlers]
+        = createInferencePipeline(*identityModel, inputSchema, outputSchema, {"input_blob"}, outputFieldNames, true, false);
+    nautilus::engine::Options options;
+    options.setOption("engine.Compilation", false);
+    options.setOption("engine.backend", std::string("mlir"));
+    options.setOption("engine.compilationStrategy", std::string("legacy"));
+    CompiledExecutablePipelineStage stage(pipeline, handlers, options);
+
+    folly::Synchronized<std::vector<TupleBuffer>> emittedBuffers;
+    auto bufMgr = BufferManager::create(
+        TOTAL_MEMORY_IN_BYTES, UNPOOLED_MEMORY_FRACTION, BUFFER_ALIGNMENT, bufferSize, std::make_shared<NesDefaultMemoryAllocator>());
+    MockedPipelineContext pec{emittedBuffers, bufMgr};
+
+    stage.start(pec);
+    try
+    {
+        stage.execute(inputBuffer, pec);
+        FAIL() << "Expected InferenceRuntimeFailure for a VARSIZED input that does not match the model's input tensor size";
+    }
+    catch (const Exception& ex)
+    {
+        EXPECT_EQ(ex.code(), ErrorCode::InferenceRuntimeFailure) << ex.what();
+    }
+    stage.stop(pec);
+}
+
 /// NOLINTEND(readability-magic-numbers, readability-identifier-length, bugprone-unchecked-optional-access, fuchsia-default-arguments-declarations)
 
 }

@@ -49,9 +49,6 @@ struct
     bool operator==(const ModelSchema&) const = default;
 };
 
-enum class Role : std::uint8_t {
-    Input, Output
-};
 
 /// A catalog entry: the user-given name and source path together with the
 /// imported model and the validated schema.

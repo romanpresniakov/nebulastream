@@ -15,22 +15,27 @@
 #include <ModelCatalog.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <numeric>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
+#include <magic_enum/magic_enum.hpp>
 
 #include <DataTypes/DataType.hpp>
-#include <DataTypes/UnboundField.hpp>
 #include <ErrorHandling.hpp>
 #include <Inference.hpp>
-#include <Model.hpp>
 
 namespace NES
 {
+
+enum class Role : std::uint8_t {
+    Input, Output
+};
+
+using enum Role;
 
 void ModelCatalog::registerModel(std::string name, std::filesystem::path path, ModelSchema schema)
 {
@@ -52,38 +57,88 @@ void ModelCatalog::registerModel(std::string name, std::filesystem::path path, M
     /// for the bulk-byte VARSIZED escape hatch — a single field that mirrors
     /// the whole tensor verbatim. Validating this here makes
     /// `model ↔ modelSchema` compatibility an invariant downstream.
-    const auto validateSide = [&](const ModelFieldList& fields, const std::vector<size_t>& tensorShape, std::string_view role)
+    const auto validateSide = [&](const ModelFieldList& fields, const std::vector<std::vector<size_t>>& tensorShapes, const Role role)
     {
         bool hasVarsized = false;
+        bool hasFloat32 = false;
         for (const auto& field : fields)
         {
             const auto type = field.getDataType().type;
             if (type != DataType::Type::FLOAT32 && type != DataType::Type::VARSIZED)
             {
                 throw NES::CannotLoadModel(
-                    "Model '{}' {} field '{}': type must be FLOAT32 or VARSIZED", name, role, field.getFullyQualifiedName());
+                    "Model '{}' {} field '{}': type must be FLOAT32 or VARSIZED",
+                    name,
+                    magic_enum::enum_name(role),
+                    field.getFullyQualifiedName());
             }
             if (type == DataType::Type::VARSIZED)
             {
                 hasVarsized = true;
             }
+
+            if (type == DataType::Type::FLOAT32)
+            {
+                hasFloat32 = true;
+            }
+
+            if (hasVarsized && hasFloat32)
+            {
+                throw NES::CannotLoadModel("Model '{}' {}: Mixing different types is not allowed!", name, magic_enum::enum_name(role));
+            }
         }
-        if (hasVarsized && fields.size() != 1)
+
+        if (hasVarsized && fields.size() != 1 && role == Output)
         {
-            throw NES::CannotLoadModel("Model '{}' {}: VARSIZED requires exactly one {} field but got {}", name, role, role, fields.size());
+            throw NES::CannotLoadModel(
+                "Model '{}' {}: VARSIZED requires exactly one {} field but got {}",
+                name,
+                magic_enum::enum_name(role),
+                magic_enum::enum_name(role),
+                fields.size());
         }
-        if (!hasVarsized)
+
+        if (hasVarsized)
         {
-            const size_t elementCount = std::accumulate(tensorShape.begin(), tensorShape.end(), size_t{1}, std::multiplies<>());
-            if (fields.size() != elementCount)
+            if (fields.size() != tensorShapes.size())
             {
                 throw NES::CannotLoadModel(
-                    "Model '{}' {}: declared {} field(s) but tensor has {} element(s)", name, role, fields.size(), elementCount);
+                    "Model '{}' {}: declared {} varsized field(s) but has {} tensor(s)",
+                    name,
+                    magic_enum::enum_name(role),
+                    fields.size(),
+                    tensorShapes.size());
+            }
+        }
+        else if (hasFloat32)
+        {
+            if (tensorShapes.size() == 1)
+            {
+                const auto& tensorShape = tensorShapes.at(0);
+                const size_t elementCount = std::accumulate(tensorShape.begin(), tensorShape.end(), size_t{1}, std::multiplies<>());
+                if (fields.size() != elementCount)
+                {
+                    throw NES::CannotLoadModel(
+                        "Model '{}' {}: declared {} field(s) but tensor has {} element(s)",
+                        name,
+                        magic_enum::enum_name(role),
+                        fields.size(),
+                        elementCount);
+                }
+            }
+            else
+            {
+                throw NES::CannotLoadModel(
+                    "Model '{}' {}: declared {} float field(s) but found multiple tensors",
+                    name,
+                    magic_enum::enum_name(role),
+                    fields.size()
+                    );
             }
         }
     };
-    validateSide(schema.inputs, imported->getInputShape(), "input");
-    validateSide(schema.outputs, imported->getOutputShape(), "output");
+    validateSide(schema.inputs, imported->getInputShapes(), Input);
+    validateSide(schema.outputs, {imported->getOutputShape()}, Output);
 
     auto registered = RegisteredModel{name, std::move(path), std::move(*imported), std::move(schema)};
     entries.insert_or_assign(std::move(name), std::move(registered));

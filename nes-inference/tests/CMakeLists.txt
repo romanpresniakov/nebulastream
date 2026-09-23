@@ -25,4 +25,5 @@ if (ENABLE_INFERENCE_TESTS)
 
     add_nes_test_inference(InferenceRuntimeTest InferenceRuntimeTest.cpp)
     target_link_libraries(InferenceRuntimeTest nes-inference-runtime)
+    target_include_directories(InferenceRuntimeTest PRIVATE $<TARGET_PROPERTY:openvino::runtime,INTERFACE_INCLUDE_DIRECTORIES>)
 endif ()

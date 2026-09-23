@@ -16,11 +16,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <ErrorHandling.hpp>
 
 #include <DataTypes/DataType.hpp>
 #include <DataTypes/VarVal.hpp>
@@ -30,6 +34,7 @@
 #include <nautilus/function.hpp>
 #include <nautilus/std/cstring.h>
 #include <InferenceRuntime.hpp>
+#include <val_memcpy.hpp>
 #include <val_ptr.hpp>
 
 #include <Identifiers/QualifiedIdentifier.hpp>
@@ -101,6 +106,15 @@ void infer(ThreadLocalRuntimeWrapper* twl, WorkerThreadId thread)
     twl->getHandle(thread).infer();
 }
 
+void checkInputTensorSize(uint64_t tensorIndex, uint64_t expectedBytes, uint64_t actualBytes)
+{
+    if (actualBytes != expectedBytes)
+    {
+        throw InferenceRuntimeFailure(
+            "Tensor {} expects {} bytes, but got {} from the VARSIZED field", tensorIndex, expectedBytes, actualBytes);
+    }
+}
+
 }
 
 InferModelPhysicalOperator::InferModelPhysicalOperator(
@@ -115,6 +129,13 @@ InferModelPhysicalOperator::InferModelPhysicalOperator(
     , varsizedInput(varsizedInput)
     , varsizedOutput(varsizedOutput)
 {
+    const auto& inputShapes = model.getInputShapes();
+    inputByteSizes.reserve(inputShapes.size());
+    for (const auto& shape : inputShapes)
+    {
+        inputByteSizes.push_back(sizeof(float) * std::accumulate(shape.begin(), shape.end(), size_t{1}, std::multiplies<>()));
+    }
+
     threadLocal = std::make_shared<ThreadLocalRuntimeWrapper>(std::move(model));
 }
 
@@ -131,9 +152,22 @@ void InferModelPhysicalOperator::execute(ExecutionContext& ctx, Record& record) 
 
     if (varsizedInput)
     {
-        const auto& value = record.read(inputFieldNames.at(0));
-        auto varSized = value.getRawValueAs<VariableSizedData>();
-        nautilus::memcpy(inputBuffer, varSized.getContent(), varSized.getSize());
+        INVARIANT(
+            inputFieldNames.size() == inputByteSizes.size(),
+            "Number of VARSIZED input fields ({}) must match the number of model input tensors ({})",
+            inputFieldNames.size(),
+            inputByteSizes.size());
+
+        auto memPos = inputBuffer;
+        for (nautilus::static_val<size_t> i = 0; i < inputFieldNames.size(); i++)
+        {
+            const auto& value = record.read(inputFieldNames.at(nautilus::static_val<int>(i)));
+            auto varSized = value.getRawValueAs<VariableSizedData>();
+            const auto expectedBytes = nautilus::val<uint64_t>(inputByteSizes.at(nautilus::static_val<size_t>(i)));
+            nautilus::invoke(checkInputTensorSize, nautilus::val<uint64_t>(i), expectedBytes, varSized.getSize());
+            nautilus::memcpy(memPos, varSized.getContent(), expectedBytes);
+            memPos = memPos + expectedBytes;
+        }
     }
     else
     {

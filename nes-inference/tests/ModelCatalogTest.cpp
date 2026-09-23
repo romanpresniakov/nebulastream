@@ -69,6 +69,34 @@ ModelFieldList replaceFirstFieldType(const ModelFieldList& schema, DataType repl
     return std::move(fields) | std::ranges::to<ModelFieldList>();
 }
 
+ModelFieldList typedFields(const std::vector<DataType::Type>& types)
+{
+    std::vector<UnqualifiedUnboundField> fieldVec;
+    fieldVec.reserve(types.size());
+    for (size_t i = 0; i < types.size(); ++i)
+    {
+        fieldVec.emplace_back(Identifier::parse(fmt::format("f{}", i)), dt(types.at(i)));
+    }
+    return std::move(fieldVec) | std::ranges::to<ModelFieldList>();
+}
+
+/// Registration must fail with CannotLoadModel, and for the expected reason: several rules can
+/// reject the same schema, so the message pins down which one fired.
+void expectRegistrationRejected(ModelCatalog& catalog, const std::filesystem::path& path, ModelSchema schema, std::string_view expectedMessage)
+{
+    try
+    {
+        catalog.registerModel("m", path, std::move(schema));
+        FAIL() << "Expected registration to be rejected with: " << expectedMessage;
+    }
+    catch (const Exception& ex)
+    {
+        EXPECT_EQ(ex.code(), NES::ErrorCode::CannotLoadModel);
+        EXPECT_NE(std::string_view{ex.what()}.find(expectedMessage), std::string_view::npos) << ex.what();
+    }
+    EXPECT_FALSE(catalog.hasModel("m"));
+}
+
 std::filesystem::path identityPath()
 {
     /// tiny_identity.onnx: f32, input shape [1,100], output shape [1,100] — 100 elements each side.
@@ -85,6 +113,12 @@ std::filesystem::path fixedBatchPath()
 {
     /// tiny_fixed_batch.onnx: f32 identity with shape [4,100] on each side.
     return std::filesystem::path(INFERENCE_TEST_DATA) / "tiny_fixed_batch.onnx";
+}
+
+std::filesystem::path twoInputsPath()
+{
+    /// tiny_two_inputs.onnx: f32 Concat(a [1,2], b [1,3]) -> y [1,5] — two input tensors, 5 output elements.
+    return std::filesystem::path(INFERENCE_TEST_DATA) / "tiny_two_inputs.onnx";
 }
 
 }
@@ -205,6 +239,113 @@ TEST_F(ModelCatalogTest, RejectsModelWithFixedBatchDimension)
             fixedBatchPath(),
             ModelSchema{.inputs = fields(400, DataType::Type::FLOAT32), .outputs = fields(400, DataType::Type::FLOAT32)}),
         NES::ErrorCode::CannotLoadModel);
+}
+
+/// One VARSIZED field per input tensor, mapped positionally.
+TEST_F(ModelCatalogTest, RegistersModelWithOneVarsizedFieldPerInputTensor)
+{
+    ModelCatalog catalog;
+    ASSERT_NO_THROW(catalog.registerModel(
+        "two-inputs",
+        twoInputsPath(),
+        ModelSchema{.inputs = fields(2, DataType::Type::VARSIZED), .outputs = fields(5, DataType::Type::FLOAT32)}));
+    EXPECT_TRUE(catalog.hasModel("two-inputs"));
+}
+
+TEST_F(ModelCatalogTest, RegistersModelWithMultipleVarsizedInputsAndVarsizedOutput)
+{
+    ModelCatalog catalog;
+    ASSERT_NO_THROW(catalog.registerModel(
+        "two-inputs-varsized",
+        twoInputsPath(),
+        ModelSchema{.inputs = fields(2, DataType::Type::VARSIZED), .outputs = singleField("blob_out", dt(DataType::Type::VARSIZED))}));
+    EXPECT_TRUE(catalog.hasModel("two-inputs-varsized"));
+}
+
+TEST_F(ModelCatalogTest, RejectsFewerVarsizedInputsThanInputTensors)
+{
+    ModelCatalog catalog;
+    expectRegistrationRejected(
+        catalog,
+        twoInputsPath(),
+        ModelSchema{.inputs = fields(1, DataType::Type::VARSIZED), .outputs = fields(5, DataType::Type::FLOAT32)},
+        "declared 1 varsized field(s) but has 2");
+}
+
+TEST_F(ModelCatalogTest, RejectsMoreVarsizedInputsThanInputTensors)
+{
+    ModelCatalog catalog;
+    expectRegistrationRejected(
+        catalog,
+        twoInputsPath(),
+        ModelSchema{.inputs = fields(3, DataType::Type::VARSIZED), .outputs = fields(5, DataType::Type::FLOAT32)},
+        "declared 3 varsized field(s) but has 2");
+}
+
+TEST_F(ModelCatalogTest, RejectsMultipleVarsizedInputsOnSingleInputModel)
+{
+    ModelCatalog catalog;
+    expectRegistrationRejected(
+        catalog,
+        identityPath(),
+        ModelSchema{.inputs = fields(2, DataType::Type::VARSIZED), .outputs = fields(100, DataType::Type::FLOAT32)},
+        "declared 2 varsized field(s) but has 1");
+}
+
+/// FLOAT32 fields map element-wise onto a single tensor; they cannot be spread across several.
+TEST_F(ModelCatalogTest, RejectsFloat32InputsOnMultipleInputTensors)
+{
+    ModelCatalog catalog;
+    expectRegistrationRejected(
+        catalog,
+        twoInputsPath(),
+        ModelSchema{.inputs = fields(5, DataType::Type::FLOAT32), .outputs = fields(5, DataType::Type::FLOAT32)},
+        "found multiple tensors");
+}
+
+/// Mixing is rejected regardless of which type comes first.
+TEST_F(ModelCatalogTest, RejectsVarsizedFollowedByFloat32Input)
+{
+    ModelCatalog catalog;
+    expectRegistrationRejected(
+        catalog,
+        twoInputsPath(),
+        ModelSchema{
+            .inputs = typedFields({DataType::Type::VARSIZED, DataType::Type::FLOAT32}), .outputs = fields(5, DataType::Type::FLOAT32)},
+        "Mixing different types is not allowed");
+}
+
+TEST_F(ModelCatalogTest, RejectsFloat32FollowedByVarsizedInput)
+{
+    ModelCatalog catalog;
+    expectRegistrationRejected(
+        catalog,
+        twoInputsPath(),
+        ModelSchema{
+            .inputs = typedFields({DataType::Type::FLOAT32, DataType::Type::VARSIZED}), .outputs = fields(5, DataType::Type::FLOAT32)},
+        "Mixing different types is not allowed");
+}
+
+TEST_F(ModelCatalogTest, RejectsMixedOutputTypes)
+{
+    ModelCatalog catalog;
+    expectRegistrationRejected(
+        catalog,
+        identityPath(),
+        ModelSchema{
+            .inputs = fields(100, DataType::Type::FLOAT32), .outputs = typedFields({DataType::Type::FLOAT32, DataType::Type::VARSIZED})},
+        "Mixing different types is not allowed");
+}
+
+/// Relaxing the VARSIZED rule applies to inputs only; the output side keeps a single field.
+TEST_F(ModelCatalogTest, RejectsMultipleVarsizedOutputs)
+{
+    ModelCatalog catalog;
+    expectRegistrationRejected(
+        catalog,
+        twoInputsPath(),
+        ModelSchema{.inputs = fields(2, DataType::Type::VARSIZED), .outputs = fields(2, DataType::Type::VARSIZED)},
+        "VARSIZED requires exactly one Output field but got 2");
 }
 
 /// NOLINTEND(readability-magic-numbers)

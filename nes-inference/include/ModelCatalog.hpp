@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -47,6 +48,7 @@ struct
 
     bool operator==(const ModelSchema&) const = default;
 };
+
 
 /// A catalog entry: the user-given name and source path together with the
 /// imported model and the validated schema.

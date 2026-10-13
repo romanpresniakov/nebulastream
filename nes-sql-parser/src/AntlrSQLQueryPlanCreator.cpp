@@ -1480,13 +1480,18 @@ void AntlrSQLQueryPlanCreator::exitTensorAggregation(AntlrSQLParser::TensorAggre
             throw InvalidQuerySyntax("TENSOR_AGG SHAPE dimension {} is too large at {}", dimension->getText(), context->getText());
         }
     }
-    const float defaultValue = context->tensorDefault == nullptr ? 0.0F : std::stof(context->tensorDefault->getText());
+    float defaultValue = 0.0F;
+    try {
+        defaultValue = context->tensorDefault == nullptr ? 0.0F : std::stof(context->tensorDefault->getText());
+    } catch (const std::out_of_range&) {
+        throw InvalidQuerySyntax("TENSOR_AGG DEFAULT value {} is too large", context->tensorDefault->getText());
+    }
 
     const auto firstValueName = std::get<TypedLogicalFunction<UnboundFieldAccessLogicalFunction>>(arguments.front())->getFieldName();
     std::vector<AggregationFieldAccess> values(arguments.begin(), arguments.begin() + static_cast<std::ptrdiff_t>(numberOfValues));
     std::vector<AggregationFieldAccess> indices(arguments.begin() + static_cast<std::ptrdiff_t>(numberOfValues), arguments.end());
 
-    const auto asField = bindIdentifier(fmt::format("{}_TENSOR_AGG", firstValueName));
+    const auto asField = bindIdentifier(fmt::format("{}_TENSOR_AGG_{}", firstValueName, helper.aggTensorAggExpCounter++));
     helper.windowAggs.emplace_back(
         TensorAggAggregationLogicalFunction{std::move(values), std::move(indices), std::move(shape), defaultValue}, std::optional{asField});
     helper.functionBuilder.emplace_back(UnboundFieldAccessLogicalFunction(asField));

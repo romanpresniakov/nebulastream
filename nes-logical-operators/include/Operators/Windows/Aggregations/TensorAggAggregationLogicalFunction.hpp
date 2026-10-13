@@ -32,12 +32,9 @@ namespace NES
 {
 /// Assembles a dense float32 tensor of a fixed shape from the tuples of a window, e.g. as the input of a model.
 /// SQL: TENSOR_AGG(v_1, ..., v_k AT (i_1, ..., i_m) SHAPE (d_1, ..., d_m, k) DEFAULT x)
-/// Every tuple writes its value fields v_1..v_k along the last axis, at the position its index fields i_1..i_m select
-/// along the leading axes. With a single value field, the trailing axis of length 1 may be left out of SHAPE. Positions come from the tuples, not from their arrival order, so the result does not depend
-/// on sources, threads or buffer boundaries. Cells that no tuple writes keep the default value, so the result always
-/// holds exactly d_1 * ... * d_m * k float32 values in row-major order.
 /// Tuples with an index outside the shape or a NULL index are ignored; a NULL value leaves its cell untouched.
-/// If several tuples write the same position, one of them wins.
+/// If several tuples write the same cell, the latest non-NULL value wins: the later event timestamp, and at equal
+/// timestamps the tuple that came later in its source's stream (different sources are ordered by origin id).
 class TensorAggAggregationLogicalFunction
 {
 public:

@@ -184,6 +184,13 @@ if (NOT CODE_COVERAGE)
             NAME systest_benchmark_small
             COMMAND systest -b --show-query-performance --workingDir=${CMAKE_CURRENT_BINARY_DIR}/benchmark_small --exclude-groups ${SYSTEST_EXCLUDE_GROUPS_COMPILER} --data ${EXPANDED_TEST_DATA_PATH} -- --worker.query_engine.number_of_worker_threads=4 --worker.default_query_execution.execution_mode=COMPILER --worker.total_memory_in_bytes=${SYSTEST_JOIN_TOTAL_MEMORY_BYTES} --worker.unpooled_memory_fraction=${SYSTEST_JOIN_UNPOOLED_FRACTION} --worker.default_query_execution.slice_cache.enable_slice_cache=true)
     set_tests_properties(systest_benchmark_small PROPERTIES LABELS "Systest" PROCESSORS 4)
+
+    if (ENABLE_INFERENCE_TESTS)
+        ExternalData_Add_Test(test-data
+                NAME systest_four_stations
+                COMMAND systest -g FourStations --clusterConfig ${CMAKE_CURRENT_SOURCE_DIR}/../configs/topologies/four-stations.yaml --workingDir=${CMAKE_CURRENT_BINARY_DIR}/four_stations --data ${EXPANDED_TEST_DATA_PATH})
+        set_tests_properties(systest_four_stations PROPERTIES LABELS "Systest" PROCESSORS 4)
+    endif ()
 endif (NOT CODE_COVERAGE)
 
 

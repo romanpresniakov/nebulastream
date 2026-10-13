@@ -30,10 +30,13 @@
 
 namespace NES
 {
-/// Physical form of TENSOR_AGG (see TensorAggAggregationLogicalFunction). The state points to a dense row-major float32
-/// tensor, filled with the default value on reset, and one written flag per row, where a row holds the value fields
-/// of one position. Lift writes a tuple's values into the row its indices select, combine copies the rows the other
-/// state wrote, and lower emits the tensor as VARSIZED bytes. None of the steps depend on the order of the tuples.
+/// Physical form of TENSOR_AGG (see TensorAggAggregationLogicalFunction). Lift
+/// appends one fixed-size entry per tuple (its row, event timestamp, stream position and values) to pages from the
+/// buffer pool, combine attaches the other state's pages, and lower allocates the tensor once per window and key,
+/// fills it with the default and applies the entries.
+/// In case of a tie Lower uses the order (timestamp, origin, sequence number, chunk number, position in the input
+/// buffer), so for every cell the latest non-NULL value wins. At equal timestamps the tuple
+/// that came later in its source's stream wins. A NULL value never overwrites a cell.
 class TensorAggAggregationPhysicalFunction final : public AggregationPhysicalFunction
 {
 public:
@@ -77,9 +80,10 @@ private:
     std::vector<DataType> valueTypes;
     std::vector<PhysicalFunction> indexFunctions;
     std::vector<DataType> indexTypes;
-    /// Length of the leading axes, one per index function.
     std::vector<uint64_t> indexDimensions;
     float defaultValue;
     uint64_t numberOfRows;
+    bool hasNullFlags;
+    uint64_t entrySize;
 };
 }

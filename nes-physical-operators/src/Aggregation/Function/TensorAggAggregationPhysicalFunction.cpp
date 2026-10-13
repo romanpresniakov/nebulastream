@@ -21,14 +21,15 @@
 #include <functional>
 #include <memory>
 #include <numeric>
+#include <tuple>
 #include <utility>
 #include <vector>
 #include <Aggregation/Function/AggregationPhysicalFunction.hpp>
 #include <DataTypes/DataType.hpp>
-#include <DataTypes/DataTypesUtil.hpp>
 #include <DataTypes/VarVal.hpp>
 #include <DataTypes/VariableSizedData.hpp>
 #include <Functions/PhysicalFunction.hpp>
+#include <Identifiers/Identifiers.hpp>
 #include <Interface/NautilusBuffer.hpp>
 #include <Interface/Record.hpp>
 #include <Interface/TimestampRef.hpp>
@@ -42,57 +43,176 @@
 #include <ExecutionContext.hpp>
 #include <val_arith.hpp>
 #include <val_bool.hpp>
-#include <val_memcpy.hpp>
 #include <val_ptr.hpp>
 
 namespace NES
 {
 namespace
 {
+
 struct TensorAggState
 {
-    /// numberOfRows * rowWidth float32 values, row-major.
-    int8_t* values = nullptr;
-    /// One flag per row; non-zero once a tuple wrote the row.
-    int8_t* written = nullptr;
+    ChildBufferIndex::Underlying pagesIndex = 0;
+    int8_t* currentPage = nullptr;
+    uint64_t writeOffset = 0;
+    uint64_t pageSize = 0;
+    uint64_t originId = 0;
+    uint64_t sequenceNumber = 0;
+    uint64_t chunkNumber = 0;
+    uint64_t positionInBuffer = 0;
+    bool hasInputBuffer = false;
 };
 
-void allocateTensor(
+struct PageHeader
+{
+    uint64_t numberOfEntries;
+};
+
+struct EntryHeader
+{
+    uint64_t row;
+    uint64_t timestamp;
+    uint64_t originId;
+    uint64_t sequenceNumber;
+    uint64_t chunkNumber;
+    uint64_t positionInBuffer;
+};
+
+constexpr uint64_t ENTRY_ALIGNMENT = 8;
+
+void createPageList(TensorAggState* state, TupleBuffer* parentBuffer, AbstractBufferProvider* bufferProvider)
+{
+    PRECONDITION(state != nullptr && parentBuffer != nullptr && bufferProvider != nullptr, "TENSOR_AGG reset needs its state and buffers");
+    auto root = bufferProvider->getUnpooledBuffer(1);
+    if (not root)
+    {
+        throw BufferAllocationFailure("No unpooled TupleBuffer available for the TENSOR_AGG page list");
+    }
+    const auto rootIndex = parentBuffer->storeChildBuffer(*root).getRawValue();
+    new (state) TensorAggState{.pagesIndex = rootIndex}; /// NOLINT(cppcoreguidelines-owning-memory)
+}
+
+
+int8_t* appendEntry(
     TensorAggState* state,
     TupleBuffer* parentBuffer,
     AbstractBufferProvider* bufferProvider,
-    const uint64_t numberOfRows,
-    const uint64_t rowWidth,
-    const float defaultValue)
+    const uint64_t entrySize,
+    const uint64_t row,
+    const uint64_t timestamp,
+    const OriginId originId,
+    const SequenceNumber sequenceNumber,
+    const ChunkNumber chunkNumber)
 {
-    PRECONDITION(state != nullptr, "TENSOR_AGG state must not be null");
-    PRECONDITION(parentBuffer != nullptr, "TENSOR_AGG parent buffer must not be null");
-    PRECONDITION(bufferProvider != nullptr, "TENSOR_AGG buffer provider must not be null");
-    const auto numberOfValues = numberOfRows * rowWidth;
-    auto tensor = bufferProvider->getUnpooledBuffer(numberOfValues * sizeof(float) + numberOfRows);
-    if (not tensor)
+    PRECONDITION(state != nullptr && parentBuffer != nullptr && bufferProvider != nullptr, "TENSOR_AGG lift needs its state and buffers");
+    if (not state->hasInputBuffer || state->originId != originId.getRawValue() || state->sequenceNumber != sequenceNumber.getRawValue()
+        || state->chunkNumber != chunkNumber.getRawValue())
     {
-        throw BufferAllocationFailure("No unpooled TupleBuffer of {} values available for TENSOR_AGG", numberOfValues);
+        state->originId = originId.getRawValue();
+        state->sequenceNumber = sequenceNumber.getRawValue();
+        state->chunkNumber = chunkNumber.getRawValue();
+        state->positionInBuffer = 0;
+        state->hasInputBuffer = true;
     }
-    auto* const memory = reinterpret_cast<int8_t*>(tensor->getAvailableMemoryArea<>().data()); /// NOLINT
-    std::fill_n(reinterpret_cast<float*>(memory), numberOfValues, defaultValue); /// NOLINT
-    auto* const written = memory + numberOfValues * sizeof(float); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    std::fill_n(written, numberOfRows, int8_t{0});
-    std::ignore = parentBuffer->storeChildBuffer(*tensor);
-    new (state) TensorAggState{.values = memory, .written = written}; /// NOLINT(cppcoreguidelines-owning-memory)
+
+    if (state->currentPage == nullptr || state->writeOffset + entrySize > state->pageSize)
+    {
+        auto page = bufferProvider->getBufferBlocking();
+        if (page.getBufferSize() < sizeof(PageHeader) + entrySize)
+        {
+            throw UnsupportedQuery(
+                "A TENSOR_AGG entry of {} bytes does not fit into a buffer of {} bytes; use fewer value fields per position",
+                entrySize,
+                page.getBufferSize());
+        }
+        auto* const pageData = reinterpret_cast<int8_t*>(page.getAvailableMemoryArea<>().data()); /// NOLINT
+        new (pageData) PageHeader{.numberOfEntries = 0}; /// NOLINT(cppcoreguidelines-owning-memory)
+        state->currentPage = pageData;
+        state->writeOffset = sizeof(PageHeader);
+        state->pageSize = page.getBufferSize();
+        auto pages = parentBuffer->loadChildBuffer(ChildBufferIndex{state->pagesIndex});
+        std::ignore = pages.storeChildBuffer(page);
+    }
+
+    auto* const entry = state->currentPage + state->writeOffset; /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    state->writeOffset += entrySize;
+    reinterpret_cast<PageHeader*>(state->currentPage)->numberOfEntries += 1; /// NOLINT
+    std::memset(entry, 0, entrySize);
+    new (entry) EntryHeader{ /// NOLINT(cppcoreguidelines-owning-memory)
+        .row = row,
+        .timestamp = timestamp,
+        .originId = state->originId,
+        .sequenceNumber = state->sequenceNumber,
+        .chunkNumber = state->chunkNumber,
+        .positionInBuffer = state->positionInBuffer++};
+    return entry + sizeof(EntryHeader); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
-void combineTensors(TensorAggState* destination, const TensorAggState* source, const uint64_t numberOfRows, const uint64_t rowBytes)
+void attachPages(TensorAggState* destination, TupleBuffer* destinationParent, const TensorAggState* source, const TupleBuffer* sourceParent)
 {
     PRECONDITION(destination != nullptr && source != nullptr, "TENSOR_AGG states must not be null");
-    for (uint64_t row = 0; row < numberOfRows; ++row)
+    auto destinationPages = destinationParent->loadChildBuffer(ChildBufferIndex{destination->pagesIndex});
+    const auto sourcePages = sourceParent->loadChildBuffer(ChildBufferIndex{source->pagesIndex});
+    for (uint32_t page = 0; page < sourcePages.getNumberOfChildBuffers(); ++page)
     {
-        if (source->written[row] != 0) /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        auto sharedPage = sourcePages.loadChildBuffer(ChildBufferIndex{page});
+        std::ignore = destinationPages.storeChildBuffer(sharedPage);
+    }
+}
+
+void materializeTensor(
+    const TensorAggState* state,
+    const TupleBuffer* parentBuffer,
+    int8_t* tensor,
+    const uint64_t numberOfRows,
+    const uint64_t rowWidth,
+    const float defaultValue,
+    const uint64_t entrySize,
+    const uint64_t hasNullFlags)
+{
+    PRECONDITION(state != nullptr && parentBuffer != nullptr && tensor != nullptr, "TENSOR_AGG lower needs its state and buffers");
+    for (uint64_t i = 0; i < numberOfRows * rowWidth; ++i)
+    {
+        std::memcpy(tensor + (i * sizeof(float)), &defaultValue, sizeof(float)); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic) // fill in default values
+    }
+
+    std::vector<const EntryHeader*> entries;
+    const auto pages = parentBuffer->loadChildBuffer(ChildBufferIndex{state->pagesIndex});
+    for (uint32_t i = 0; i < pages.getNumberOfChildBuffers(); ++i)
+    {
+        const auto page = pages.loadChildBuffer(ChildBufferIndex{i});
+        const auto* const pageData = reinterpret_cast<const int8_t*>(page.getAvailableMemoryArea<>().data()); /// NOLINT
+        const auto numberOfEntries = reinterpret_cast<const PageHeader*>(pageData)->numberOfEntries; /// NOLINT
+        for (uint64_t j = 0; j < numberOfEntries; ++j)
         {
-            std::memcpy(destination->values + row * rowBytes, source->values + row * rowBytes, rowBytes); /// NOLINT
-            destination->written[row] = 1; /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            entries.push_back(reinterpret_cast<const EntryHeader*>(pageData + sizeof(PageHeader) + j * entrySize)); /// NOLINT
         }
     }
+    std::ranges::sort(
+        entries,
+        std::less<>{},
+        [](const EntryHeader* entry)
+        { return std::tie(entry->timestamp, entry->originId, entry->sequenceNumber, entry->chunkNumber, entry->positionInBuffer); });
+
+    for (const auto* entry : entries)
+    {
+        const auto* const values = reinterpret_cast<const int8_t*>(entry) + sizeof(EntryHeader); /// NOLINT
+        const auto* const nullFlags = values + (rowWidth * sizeof(float)); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        auto* const row = tensor + (entry->row * rowWidth * sizeof(float)); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        for (uint64_t i = 0; i < rowWidth; ++i)
+        {
+            if (hasNullFlags == 0 || nullFlags[i] == 0)
+            {
+                std::memcpy(row + i * sizeof(float), values + i * sizeof(float), sizeof(float)); /// NOLINT
+            }
+        }
+    }
+}
+
+uint64_t entrySizeFor(const uint64_t rowWidth, const bool hasNullFlags)
+{
+    const auto unpadded = sizeof(EntryHeader) + rowWidth * sizeof(float) + (hasNullFlags ? rowWidth : 0);
+    return (unpadded + ENTRY_ALIGNMENT - 1) / ENTRY_ALIGNMENT * ENTRY_ALIGNMENT;
 }
 }
 
@@ -113,6 +233,8 @@ TensorAggAggregationPhysicalFunction::TensorAggAggregationPhysicalFunction(
     , indexDimensions(std::move(indexDimensions))
     , defaultValue(defaultValue)
     , numberOfRows(std::accumulate(this->indexDimensions.begin(), this->indexDimensions.end(), uint64_t{1}, std::multiplies<>()))
+    , hasNullFlags(std::ranges::any_of(this->valueTypes, [](const DataType& type) { return type.nullable; }))
+    , entrySize(entrySizeFor(this->valueFunctions.size(), hasNullFlags))
 {
     PRECONDITION(this->valueFunctions.size() == this->valueTypes.size(), "TENSOR_AGG needs a type for every value function");
     PRECONDITION(
@@ -122,44 +244,52 @@ TensorAggAggregationPhysicalFunction::TensorAggAggregationPhysicalFunction(
 
 void TensorAggAggregationPhysicalFunction::lift(
     const nautilus::val<AggregationState*>& aggregationState,
-    BorrowedNautilusBuffer,
+    BorrowedNautilusBuffer parentBuffer,
     PipelineMemoryProvider& pipelineMemoryProvider,
     const Record& record,
-    const nautilus::val<Timestamp>&,
-    const AggregationInputBuffer&)
+    const nautilus::val<Timestamp>& timestamp,
+    const AggregationInputBuffer& inputBuffer)
 {
-    /// The row of this tuple, in row-major order over the leading axes, and whether every index lies inside the shape.
-    /// Tuples outside the shape or with a NULL index are ignored. The loops over axes and values are unrolled while
-    /// tracing; their counters are static_vals so that the branches of different iterations are distinct trace points
-    /// (with plain counters, Nautilus mistakes the repeated branch for a loop: "Invalid trace ... constant loop").
     nautilus::val<uint64_t> row{0};
     nautilus::val<bool> insideTensor{true};
-    for (nautilus::static_val<size_t> axis = 0; axis < indexFunctions.size(); ++axis)
+    for (nautilus::static_val<size_t> i = 0; i < indexFunctions.size(); ++i)
     {
-        const auto index = indexFunctions[axis].execute(record, pipelineMemoryProvider.arena);
+        const auto index = indexFunctions[i].execute(record, pipelineMemoryProvider.arena);
         const auto signedPosition = index.getRawValueAs<nautilus::val<int64_t>>();
         insideTensor = insideTensor && signedPosition >= nautilus::val<int64_t>{0}
-            && signedPosition < nautilus::val<int64_t>{static_cast<int64_t>(indexDimensions[axis])};
-        if (indexTypes[axis].nullable)
+            && signedPosition < nautilus::val<int64_t>{static_cast<int64_t>(indexDimensions[i])};
+        if (indexTypes[i].nullable)
         {
             insideTensor = insideTensor && not index.isNull();
         }
-        row = row * nautilus::val<uint64_t>{indexDimensions[axis]} + index.getRawValueAs<nautilus::val<uint64_t>>();
+        row = row * nautilus::val<uint64_t>{indexDimensions[i]} + index.getRawValueAs<nautilus::val<uint64_t>>();
     }
 
     if (insideTensor)
     {
-        const auto state = static_cast<nautilus::val<int8_t*>>(aggregationState);
-        const auto values = readValueFromMemRef<int8_t*>(getMemberRef(state, &TensorAggState::values));
-        const auto written = readValueFromMemRef<int8_t*>(getMemberRef(state, &TensorAggState::written));
-        const auto rowStart = values + row * nautilus::val<uint64_t>{valueFunctions.size() * sizeof(float)};
-        for (nautilus::static_val<size_t> column = 0; column < valueFunctions.size(); ++column)
+        const auto values = nautilus::invoke(
+            appendEntry,
+            static_cast<nautilus::val<TensorAggState*>>(aggregationState),
+            parentBuffer.asArg(),
+            pipelineMemoryProvider.bufferProvider,
+            nautilus::val<uint64_t>{entrySize},
+            row,
+            timestamp.convertToValue(),
+            inputBuffer.originId,
+            inputBuffer.sequenceNumber,
+            inputBuffer.chunkNumber);
+        for (nautilus::static_val<size_t> i = 0; i < valueFunctions.size(); ++i)
         {
-            const auto value = valueFunctions[column].execute(record, pipelineMemoryProvider.arena);
-            const auto target = rowStart + nautilus::val<uint64_t>{column * sizeof(float)};
-            if (valueTypes[column].nullable)
+            const auto value = valueFunctions[i].execute(record, pipelineMemoryProvider.arena);
+            const auto target = values + nautilus::val<uint64_t>{i * sizeof(float)};
+            if (valueTypes[i].nullable)
             {
-                if (not value.isNull())
+                if (value.isNull())
+                {
+                    const auto nullFlag = values + nautilus::val<uint64_t>{valueFunctions.size() * sizeof(float) + i};
+                    VarVal{nautilus::val<int8_t>{1}}.writeToMemory(nullFlag);
+                }
+                else
                 {
                     VarVal{value.getRawValueAs<nautilus::val<float>>()}.writeToMemory(target);
                 }
@@ -169,33 +299,41 @@ void TensorAggAggregationPhysicalFunction::lift(
                 VarVal{value.getRawValueAs<nautilus::val<float>>()}.writeToMemory(target);
             }
         }
-        VarVal{nautilus::val<int8_t>{1}}.writeToMemory(written + row);
     }
 }
 
 void TensorAggAggregationPhysicalFunction::combine(
     nautilus::val<AggregationState*> aggregationState1,
-    BorrowedNautilusBuffer,
+    BorrowedNautilusBuffer parentBuffer1,
     nautilus::val<AggregationState*> aggregationState2,
-    BorrowedNautilusBuffer,
+    BorrowedNautilusBuffer parentBuffer2,
     PipelineMemoryProvider&)
 {
     nautilus::invoke(
-        combineTensors,
+        attachPages,
         static_cast<nautilus::val<TensorAggState*>>(aggregationState1),
+        parentBuffer1.asArg(),
         static_cast<nautilus::val<TensorAggState*>>(aggregationState2),
-        nautilus::val<uint64_t>{numberOfRows},
-        nautilus::val<uint64_t>{valueFunctions.size() * sizeof(float)});
+        parentBuffer2.asArg());
 }
 
 Record TensorAggAggregationPhysicalFunction::lower(
-    const nautilus::val<AggregationState*> aggregationState, BorrowedNautilusBuffer, PipelineMemoryProvider& pipelineMemoryProvider)
+    const nautilus::val<AggregationState*> aggregationState,
+    BorrowedNautilusBuffer parentBuffer,
+    PipelineMemoryProvider& pipelineMemoryProvider)
 {
-    const auto state = static_cast<nautilus::val<int8_t*>>(aggregationState);
-    const auto values = readValueFromMemRef<int8_t*>(getMemberRef(state, &TensorAggState::values));
     const auto tensorBytes = nautilus::val<uint64_t>{numberOfRows * valueFunctions.size() * sizeof(float)};
     auto payload = pipelineMemoryProvider.arena.allocateVariableSizedData(tensorBytes);
-    nautilus::memcpy(payload.getContent(), values, tensorBytes);
+    nautilus::invoke(
+        materializeTensor,
+        static_cast<nautilus::val<TensorAggState*>>(aggregationState),
+        parentBuffer.asArg(),
+        payload.getContent(),
+        nautilus::val<uint64_t>{numberOfRows},
+        nautilus::val<uint64_t>{valueFunctions.size()},
+        nautilus::val<float>{defaultValue},
+        nautilus::val<uint64_t>{entrySize},
+        nautilus::val<uint64_t>{hasNullFlags ? uint64_t{1} : uint64_t{0}});
     Record result;
     result.write(resultFieldIdentifier, VarVal{payload});
     return result;
@@ -207,18 +345,15 @@ void TensorAggAggregationPhysicalFunction::reset(
     PipelineMemoryProvider& pipelineMemoryProvider)
 {
     nautilus::invoke(
-        allocateTensor,
+        createPageList,
         static_cast<nautilus::val<TensorAggState*>>(aggregationState),
         parentBuffer.asArg(),
-        pipelineMemoryProvider.bufferProvider,
-        nautilus::val<uint64_t>{numberOfRows},
-        nautilus::val<uint64_t>{valueFunctions.size()},
-        nautilus::val<float>{defaultValue});
+        pipelineMemoryProvider.bufferProvider);
 }
 
 void TensorAggAggregationPhysicalFunction::cleanup(nautilus::val<AggregationState*>)
 {
-    /// The tensor is a child of the parent hash-map buffer and is released with its parent.
+    /// The pages are children of the parent hash-map buffer and are released with it.
 }
 
 size_t TensorAggAggregationPhysicalFunction::getSizeOfStateInBytes() const

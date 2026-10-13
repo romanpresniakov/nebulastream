@@ -8,3 +8,4 @@
 # - large scale tests are always skipped below
 exclude_groups:
   - large
+  - FourStations

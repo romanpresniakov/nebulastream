@@ -1,76 +1,39 @@
 # name: inference/InferModelTEAMTensorAgg.test
-# description: TEAM inference on tensors that TENSOR_AGG assembles from per-station sensor streams
-# groups: [Inference, Aggregation]
+# description: TEAM inference on tensors that TENSOR_AGG assembles from four seismic stations on four workers
+# groups: [Inference, Aggregation, FourStations]
 
-# Every seismic station is a separate physical source that streams its (preprocessed) recording sample by sample,
-# with real timestamps: one tuple per sample with the three channels n, e, z and the station's coordinates.
-# TENSOR_AGG places every tuple by its station slot and sample index, which assembles the unmodified model's inputs
+# Four seismic stations, each a physical source pinned to its own worker of configs/topologies/four-stations.yaml,
+# stream their (preprocessed) recordings sample by sample with real timestamps: one tuple per sample with the three
+# channels n, e, z and the station's coordinates. The tuples travel to sink-node, where TENSOR_AGG places every tuple
+# by its station slot and sample index, which assembles the unmodified model's inputs
 #     waveforms [25, 3000, 3]   TENSOR_AGG(n, e, z AT (station_slot, sample_idx) SHAPE (25, 3000, 3))
 #     coords    [25, 3]         TENSOR_AGG(latitude, longitude, depth_km AT (station_slot) SHAPE (25, 3))
-# per event, independent of the order in which the stations' tuples arrive. See InferModelTEAM.test for the model.
-#
-# The streams hold events 3, 26 and 47 for a prediction at t = 5 s, written by
-#     model/team_baseline/prepare_team_input.py --time 5 --events 3 26 47 --stream-dir stream_t5
-# Only data that exists 5 s into an event is streamed: the first 1000 samples of the stations whose P wave has
-# arrived (6, 5 and 10 of them). Everything else is zero in TEAM's input, which TENSOR_AGG's default fills in.
-# The expected predictions are TensorFlow's results on the same inputs.
+# independent of the order in which the stations' tuples arrive, and MODEL_INFERENCE runs the model on them.
+# See InferModelTEAM.test for the model. Run with:
+#     systest -g FourStations --clusterConfig nes-systests/configs/topologies/four-stations.yaml
+# Run with RelWithDebInfo!
+# team_input_t5_4stations.csv holds the same input as
+# Python builds it, and the expected predictions are TensorFlow's results on it.
 
 GlobalConfiguration worker.query_engine.number_of_worker_threads: [1, 4]
+GlobalConfiguration worker.default_query_execution.execution_mode: [COMPILER, INTERPRETER]
 
 CREATE LOGICAL SOURCE stations(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
     timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
     latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.BCL.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.CNMT.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.CSO1.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.CTD.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
+CREATE PHYSICAL SOURCE FOR stations TYPE File SET('station-01:8080' AS "SOURCE"."HOST");
 ATTACH FILE model/team_baseline/stream_t5/IT.DUR.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
+CREATE PHYSICAL SOURCE FOR stations TYPE File SET('station-02:8080' AS "SOURCE"."HOST");
 ATTACH FILE model/team_baseline/stream_t5/IT.LRNO.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.LSS.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
+CREATE PHYSICAL SOURCE FOR stations TYPE File SET('station-03:8080' AS "SOURCE"."HOST");
 ATTACH FILE model/team_baseline/stream_t5/IT.MCLF.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.MMP1.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.MZZ.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.NAS.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.NRN.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.PLS.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
+CREATE PHYSICAL SOURCE FOR stations TYPE File SET('station-04:8080' AS "SOURCE"."HOST");
 ATTACH FILE model/team_baseline/stream_t5/IT.PLTA.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.PTT.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.SCO.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.SGMA.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.SPR.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.TRL.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.TRN1.csv
-CREATE PHYSICAL SOURCE FOR stations TYPE File;
-ATTACH FILE model/team_baseline/stream_t5/IT.VSE.csv
 
-# The preprocessed tensors of the same events, as Python builds them (see InferModelTEAMMultipleSources.test).
+# The same input as Python builds it, for the byte-for-byte comparison.
 CREATE LOGICAL SOURCE team(event_idx UINT64 NOT NULL, event_id UINT64 NOT NULL, waveforms VARSIZED NOT NULL, coords VARSIZED NOT NULL);
 CREATE PHYSICAL SOURCE FOR team TYPE File;
-ATTACH FILE model/team_baseline/team_input_t5_event3.csv
-CREATE PHYSICAL SOURCE FOR team TYPE File;
-ATTACH FILE model/team_baseline/team_input_t5_event26.csv
-CREATE PHYSICAL SOURCE FOR team TYPE File;
-ATTACH FILE model/team_baseline/team_input_t5_event47.csv
+ATTACH FILE model/team_baseline/team_input_t5_4stations.csv
 
 CREATE MODEL teamBaseline ('model/team_baseline/saved_model_single_output')
 INPUT (waveforms VARSIZED, coords VARSIZED)
@@ -101,8 +64,8 @@ CREATE SINK tensors(event_idx UINT64 NOT NULL, waveforms VARSIZED NOT NULL, coor
 CREATE SINK prediction(event_idx UINT64 NOT NULL, magnitude FLOAT32 NOT NULL,
     latitude FLOAT64 NOT NULL, longitude FLOAT64 NOT NULL, depth_km FLOAT64 NOT NULL) TYPE File;
 
-# Each event's window holds 1000 samples per streaming station, yet the tensors always have the model's full size:
-# 25 * 3000 * 3 and 25 * 3 float32 values.
+# The window holds 1000 samples from each of the four stations, yet the tensors always have the model's fixed input
+# size of 25 station slots: 25 * 3000 * 3 and 25 * 3 float32 values. Slots 4..24 stay at the default 0
 SELECT event_idx, COUNT(n) AS samples,
     OCTET_LENGTH(TENSOR_AGG(n, e, z AT (station_slot, sample_idx) SHAPE (25, 3000, 3))) AS waveformBytes,
     OCTET_LENGTH(TENSOR_AGG(latitude, longitude, depth_km AT (station_slot) SHAPE (25, 3))) AS coordBytes
@@ -111,9 +74,7 @@ GROUP BY event_idx
 WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)
 INTO tensorSizes;
 ----
-3,6000,900000,300
-26,5000,900000,300
-47,10000,900000,300
+3,4000,900000,300
 
 # The assembled tensors are byte for byte the ones Python builds.
 SELECT event_idx,
@@ -151,6 +112,4 @@ FROM MODEL_INFERENCE(teamBaseline, (
     WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
 INTO prediction;
 ----
-3,3.495391,41.980669,12.108277,52.812177
-26,3.484021,41.981246,12.127388,51.288474
-47,3.496059,41.999821,12.096440,52.312624
+3,3.496288,41.979666,12.109838,52.471000

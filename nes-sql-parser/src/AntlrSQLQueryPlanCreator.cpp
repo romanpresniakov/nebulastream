@@ -1481,9 +1481,12 @@ void AntlrSQLQueryPlanCreator::exitTensorAggregation(AntlrSQLParser::TensorAggre
         }
     }
     float defaultValue = 0.0F;
-    try {
+    try
+    {
         defaultValue = context->tensorDefault == nullptr ? 0.0F : std::stof(context->tensorDefault->getText());
-    } catch (const std::out_of_range&) {
+    }
+    catch (const std::out_of_range&)
+    {
         throw InvalidQuerySyntax("TENSOR_AGG DEFAULT value {} is too large", context->tensorDefault->getText());
     }
 

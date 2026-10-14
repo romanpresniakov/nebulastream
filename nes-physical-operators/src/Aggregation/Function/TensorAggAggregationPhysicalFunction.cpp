@@ -92,7 +92,6 @@ void createPageList(TensorAggState* state, TupleBuffer* parentBuffer, AbstractBu
     new (state) TensorAggState{.pagesIndex = rootIndex}; /// NOLINT(cppcoreguidelines-owning-memory)
 }
 
-
 int8_t* appendEntry(
     TensorAggState* state,
     TupleBuffer* parentBuffer,
@@ -138,7 +137,8 @@ int8_t* appendEntry(
     state->writeOffset += entrySize;
     reinterpret_cast<PageHeader*>(state->currentPage)->numberOfEntries += 1; /// NOLINT
     std::memset(entry, 0, entrySize);
-    new (entry) EntryHeader{ /// NOLINT(cppcoreguidelines-owning-memory)
+    /// NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+    new (entry) EntryHeader{
         .row = row,
         .timestamp = timestamp,
         .originId = state->originId,
@@ -171,12 +171,14 @@ void materializeTensor(
     const uint64_t hasNullFlags)
 {
     PRECONDITION(state != nullptr && parentBuffer != nullptr && tensor != nullptr, "TENSOR_AGG lower needs its state and buffers");
-    for (uint64_t i = 0; i < numberOfRows * rowWidth; ++i)
+    const auto isLater = [](const EntryHeader* lhs, const EntryHeader* rhs)
     {
-        std::memcpy(tensor + (i * sizeof(float)), &defaultValue, sizeof(float)); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic) // fill in default values
-    }
+        return std::tie(lhs->timestamp, lhs->originId, lhs->sequenceNumber, lhs->chunkNumber, lhs->positionInBuffer)
+            > std::tie(rhs->timestamp, rhs->originId, rhs->sequenceNumber, rhs->chunkNumber, rhs->positionInBuffer);
+    };
 
-    std::vector<const EntryHeader*> entries;
+    const auto valuesPerSlot = hasNullFlags != 0 ? uint64_t{1} : rowWidth;
+    std::vector<const EntryHeader*> latest(numberOfRows * rowWidth / valuesPerSlot, nullptr);
     const auto pages = parentBuffer->loadChildBuffer(ChildBufferIndex{state->pagesIndex});
     for (uint32_t i = 0; i < pages.getNumberOfChildBuffers(); ++i)
     {
@@ -185,26 +187,35 @@ void materializeTensor(
         const auto numberOfEntries = reinterpret_cast<const PageHeader*>(pageData)->numberOfEntries; /// NOLINT
         for (uint64_t j = 0; j < numberOfEntries; ++j)
         {
-            entries.push_back(reinterpret_cast<const EntryHeader*>(pageData + sizeof(PageHeader) + j * entrySize)); /// NOLINT
+            const auto* const entry = reinterpret_cast<const EntryHeader*>(pageData + sizeof(PageHeader) + j * entrySize); /// NOLINT
+            const auto* const nullFlags = reinterpret_cast<const int8_t*>(entry) + sizeof(EntryHeader) + rowWidth * sizeof(float); /// NOLINT
+            for (uint64_t k = 0; k < rowWidth; k += valuesPerSlot)
+            {
+                if (hasNullFlags == 0 || nullFlags[k] == 0) /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                {
+                    auto& current = latest[(entry->row * rowWidth + k) / valuesPerSlot];
+                    if (current == nullptr || isLater(entry, current))
+                    {
+                        current = entry;
+                    }
+                }
+            }
         }
     }
-    std::ranges::sort(
-        entries,
-        std::less<>{},
-        [](const EntryHeader* entry)
-        { return std::tie(entry->timestamp, entry->originId, entry->sequenceNumber, entry->chunkNumber, entry->positionInBuffer); });
 
-    for (const auto* entry : entries)
+    const auto slotBytes = valuesPerSlot * sizeof(float);
+    for (uint64_t i = 0; i < latest.size(); ++i)
     {
-        const auto* const values = reinterpret_cast<const int8_t*>(entry) + sizeof(EntryHeader); /// NOLINT
-        const auto* const nullFlags = values + (rowWidth * sizeof(float)); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        auto* const row = tensor + (entry->row * rowWidth * sizeof(float)); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        for (uint64_t i = 0; i < rowWidth; ++i)
+        auto* const target = tensor + (i * slotBytes); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        if (latest[i] == nullptr)
         {
-            if (hasNullFlags == 0 || nullFlags[i] == 0)
-            {
-                std::memcpy(row + i * sizeof(float), values + i * sizeof(float), sizeof(float)); /// NOLINT
-            }
+            std::fill_n(reinterpret_cast<float*>(target), valuesPerSlot, defaultValue); /// NOLINT
+        }
+        else
+        {
+            const auto valueOffset = (i * valuesPerSlot) % rowWidth * sizeof(float);
+            const auto* const values = reinterpret_cast<const int8_t*>(latest[i]) + sizeof(EntryHeader); /// NOLINT
+            std::memcpy(target, values + valueOffset, slotBytes); /// NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         }
     }
 }
@@ -286,7 +297,7 @@ void TensorAggAggregationPhysicalFunction::lift(
             {
                 if (value.isNull())
                 {
-                    const auto nullFlag = values + nautilus::val<uint64_t>{valueFunctions.size() * sizeof(float) + i};
+                    const auto nullFlag = values + nautilus::val<uint64_t>{(valueFunctions.size() * sizeof(float)) + i};
                     VarVal{nautilus::val<int8_t>{1}}.writeToMemory(nullFlag);
                 }
                 else

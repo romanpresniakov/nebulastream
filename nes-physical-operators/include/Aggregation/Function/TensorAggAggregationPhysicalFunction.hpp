@@ -30,13 +30,12 @@
 
 namespace NES
 {
-/// Physical form of TENSOR_AGG (see TensorAggAggregationLogicalFunction). Lift
-/// appends one fixed-size entry per tuple (its row, event timestamp, stream position and values) to pages from the
-/// buffer pool, combine attaches the other state's pages, and lower allocates the tensor once per window and key,
-/// fills it with the default and applies the entries.
-/// In case of a tie Lower uses the order (timestamp, origin, sequence number, chunk number, position in the input
-/// buffer), so for every cell the latest non-NULL value wins. At equal timestamps the tuple
-/// that came later in its source's stream wins. A NULL value never overwrites a cell.
+/// Physical form of TENSOR_AGG (see TensorAggAggregationLogicalFunction). Lift appends one fixed-size entry per tuple
+/// (its row, event timestamp, stream position and values) to pages from the buffer pool, combine attaches the other
+/// state's pages, and lower allocates the tensor once per window and key and writes, for every cell, the value of the
+/// latest entry by (timestamp, origin, sequence number, chunk number, position in the input buffer), or the default if
+/// no entry wrote the cell. So the latest non-NULL value wins. At equal timestamps the tuple that came later in its
+/// source's stream wins. A NULL value never overwrites a cell.
 class TensorAggAggregationPhysicalFunction final : public AggregationPhysicalFunction
 {
 public:

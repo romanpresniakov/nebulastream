@@ -105,6 +105,7 @@ public:
     /// E.g., AVG(i + UINT64(1)) becomes: Projection(*, i + UINT64(1) AS _AGG_INPUT_0) → AVG(_AGG_INPUT_0).
     std::vector<Projection> preAggregationProjections;
     size_t aggExprCounter = 0;
+    size_t aggTensorAggExpCounter = 0;
 
     /// Number of aggregations collected before the HAVING clause was entered, so that aggregations written
     /// inside HAVING can be distinguished from the ones the SELECT list already projects.

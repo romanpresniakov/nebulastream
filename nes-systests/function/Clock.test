@@ -1,0 +1,46 @@
+# name: function/Clock.test
+# description: Tests for the CLOCK() function
+# groups: [Function, Clock]
+
+# The clock values change on every run, so the queries only check properties that always hold.
+
+CREATE LOGICAL SOURCE clockStream(id UINT64 NOT NULL);
+CREATE PHYSICAL SOURCE FOR clockStream TYPE File;
+ATTACH INLINE
+1
+2
+3
+
+# Two tuples, ids 0 and 1. At a rate of 0.2 tuples per second, the generator emits them about 5 s apart.
+CREATE LOGICAL SOURCE slowStream(id UINT64 NOT NULL);
+CREATE PHYSICAL SOURCE FOR slowStream TYPE Generator SET(
+    'ALL' AS "SOURCE".STOP_GENERATOR_WHEN_SEQUENCE_FINISHES,
+    1 AS "SOURCE".SEED,
+    'FIXED' AS "SOURCE".GENERATOR_RATE_TYPE,
+    'emit_rate 0.2' AS "SOURCE".GENERATOR_RATE_CONFIG,
+    'SEQUENCE UINT64 0 2 1' AS "SOURCE".GENERATOR_SCHEMA
+);
+
+CREATE SINK afterDateSink(id UINT64 NOT NULL, afterDate BOOLEAN NOT NULL) TYPE File;
+CREATE SINK laterSink(isLater BOOLEAN NOT NULL, waited BOOLEAN NOT NULL) TYPE File;
+
+# CLOCK() is later than 2026-10-20 00:00 UTC (1792454400000 ms) for every record.
+SELECT id, CLOCK() > UINT64(1792454400000) AS afterDate FROM clockStream INTO afterDateSink;
+----
+1,true
+2,true
+3,true
+
+# A record read about 5 s after another gets a later clock value
+SELECT clockAfter > clockBefore AS isLater, clockAfter - clockBefore >= UINT64(4500) AS waited
+FROM (
+    SELECT MAX(before) AS clockBefore, MAX(after) AS clockAfter
+    FROM (
+        SELECT id,
+               Conditional(id == UINT64(0), CLOCK(), UINT64(0)) AS before,
+               Conditional(id == UINT64(1), CLOCK(), UINT64(0)) AS after
+        FROM slowStream)
+    WINDOW TUMBLING(id, SIZE 1 SEC))
+INTO laterSink;
+----
+true,true

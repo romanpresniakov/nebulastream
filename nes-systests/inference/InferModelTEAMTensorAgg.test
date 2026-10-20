@@ -63,6 +63,7 @@ CREATE SINK tensorSizes(event_idx UINT64 NOT NULL, samples UINT64 NOT NULL, wave
 CREATE SINK tensors(event_idx UINT64 NOT NULL, waveforms VARSIZED NOT NULL, coords VARSIZED NOT NULL) TYPE File;
 CREATE SINK prediction(event_idx UINT64 NOT NULL, magnitude FLOAT32 NOT NULL,
     latitude FLOAT64 NOT NULL, longitude FLOAT64 NOT NULL, depth_km FLOAT64 NOT NULL) TYPE File;
+CREATE SINK predictionLatency(event_idx UINT64 NOT NULL, magnitude FLOAT32 NOT NULL, withinBound BOOLEAN NOT NULL) TYPE File;
 
 # The window holds 1000 samples from each of the four stations, yet the tensors always have the model's fixed input
 # size of 25 station slots: 25 * 3000 * 3 and 25 * 3 float32 values. Slots 4..24 stay at the default 0
@@ -113,3 +114,21 @@ FROM MODEL_INFERENCE(teamBaseline, (
 INTO prediction;
 ----
 3,3.496288,41.979666,12.109838,52.471000
+
+# Simple local test for the processing-time latency inspired by Karimov et. al (2018) metrics. Event-time latency can only be measured by providing real input timestamps (e.g. from a message broker)
+SELECT event_idx,
+    mag0_alpha * mag0_mu + mag1_alpha * mag1_mu + mag2_alpha * mag2_mu + mag3_alpha * mag3_mu + mag4_alpha * mag4_mu AS magnitude,
+    CLOCK() - max_ingest_ts < UINT64(60000) AS withinBound
+FROM MODEL_INFERENCE(teamBaseline, (
+    SELECT event_idx,
+        TENSOR_AGG(n, e, z AT (station_slot, sample_idx) SHAPE (25, 3000, 3)) AS waveforms,
+        TENSOR_AGG(latitude, longitude, depth_km AT (station_slot) SHAPE (25, 3)) AS coords,
+        MAX(ingest_ts) AS max_ingest_ts
+    FROM (SELECT event_idx, station_slot, sample_idx, timestamp_ms, n, e, z, latitude, longitude, depth_km,
+              CLOCK() AS ingest_ts
+          FROM stations)
+    GROUP BY event_idx
+    WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+INTO predictionLatency;
+----
+3,3.496288,true

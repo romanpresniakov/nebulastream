@@ -1,0 +1,512 @@
+# Run with:
+#     systest -g FourStations --clusterConfig nes-systests/configs/topologies/four-stations.yaml
+# Run with RelWithDebInfo!
+# The expected embeddings come from OpenVINO on the station streams. The prediction is the one of the unpartitioned model.
+# This test will be deleted as soon as partitioned operator will be implemented, since it is very messy and is only for proof of concept purposes.
+# INTERPRETER only (for now, compiler fails).
+GlobalConfiguration worker.query_engine.number_of_worker_threads: [1, 4]
+GlobalConfiguration worker.default_query_execution.execution_mode: [INTERPRETER]
+
+CREATE LOGICAL SOURCE station1(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
+    timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
+    latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
+CREATE PHYSICAL SOURCE FOR station1 TYPE File SET('station-01:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.DUR.csv
+CREATE LOGICAL SOURCE station2(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
+    timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
+    latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
+CREATE PHYSICAL SOURCE FOR station2 TYPE File SET('station-02:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.LRNO.csv
+CREATE LOGICAL SOURCE station3(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
+    timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
+    latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
+CREATE PHYSICAL SOURCE FOR station3 TYPE File SET('station-03:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.MCLF.csv
+CREATE LOGICAL SOURCE station4(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
+    timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
+    latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
+CREATE PHYSICAL SOURCE FOR station4 TYPE File SET('station-04:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.PLTA.csv
+
+CREATE MODEL teamEncoder ('model/team_baseline/team_encoder')
+INPUT (waveform VARSIZED)
+OUTPUT (
+    e0 FLOAT32, e1 FLOAT32, e2 FLOAT32, e3 FLOAT32, e4 FLOAT32, e5 FLOAT32, e6 FLOAT32, e7 FLOAT32, e8 FLOAT32,
+    e9 FLOAT32, e10 FLOAT32, e11 FLOAT32, e12 FLOAT32, e13 FLOAT32, e14 FLOAT32, e15 FLOAT32, e16 FLOAT32, e17 FLOAT32,
+    e18 FLOAT32, e19 FLOAT32, e20 FLOAT32, e21 FLOAT32, e22 FLOAT32, e23 FLOAT32, e24 FLOAT32, e25 FLOAT32,
+    e26 FLOAT32, e27 FLOAT32, e28 FLOAT32, e29 FLOAT32, e30 FLOAT32, e31 FLOAT32, e32 FLOAT32, e33 FLOAT32,
+    e34 FLOAT32, e35 FLOAT32, e36 FLOAT32, e37 FLOAT32, e38 FLOAT32, e39 FLOAT32, e40 FLOAT32, e41 FLOAT32,
+    e42 FLOAT32, e43 FLOAT32, e44 FLOAT32, e45 FLOAT32, e46 FLOAT32, e47 FLOAT32, e48 FLOAT32, e49 FLOAT32,
+    e50 FLOAT32, e51 FLOAT32, e52 FLOAT32, e53 FLOAT32, e54 FLOAT32, e55 FLOAT32, e56 FLOAT32, e57 FLOAT32,
+    e58 FLOAT32, e59 FLOAT32, e60 FLOAT32, e61 FLOAT32, e62 FLOAT32, e63 FLOAT32, e64 FLOAT32, e65 FLOAT32,
+    e66 FLOAT32, e67 FLOAT32, e68 FLOAT32, e69 FLOAT32, e70 FLOAT32, e71 FLOAT32, e72 FLOAT32, e73 FLOAT32,
+    e74 FLOAT32, e75 FLOAT32, e76 FLOAT32, e77 FLOAT32, e78 FLOAT32, e79 FLOAT32, e80 FLOAT32, e81 FLOAT32,
+    e82 FLOAT32, e83 FLOAT32, e84 FLOAT32, e85 FLOAT32, e86 FLOAT32, e87 FLOAT32, e88 FLOAT32, e89 FLOAT32,
+    e90 FLOAT32, e91 FLOAT32, e92 FLOAT32, e93 FLOAT32, e94 FLOAT32, e95 FLOAT32, e96 FLOAT32, e97 FLOAT32,
+    e98 FLOAT32, e99 FLOAT32, e100 FLOAT32, e101 FLOAT32, e102 FLOAT32, e103 FLOAT32, e104 FLOAT32, e105 FLOAT32,
+    e106 FLOAT32, e107 FLOAT32, e108 FLOAT32, e109 FLOAT32, e110 FLOAT32, e111 FLOAT32, e112 FLOAT32, e113 FLOAT32,
+    e114 FLOAT32, e115 FLOAT32, e116 FLOAT32, e117 FLOAT32, e118 FLOAT32, e119 FLOAT32, e120 FLOAT32, e121 FLOAT32,
+    e122 FLOAT32, e123 FLOAT32, e124 FLOAT32, e125 FLOAT32, e126 FLOAT32, e127 FLOAT32, e128 FLOAT32, e129 FLOAT32,
+    e130 FLOAT32, e131 FLOAT32, e132 FLOAT32, e133 FLOAT32, e134 FLOAT32, e135 FLOAT32, e136 FLOAT32, e137 FLOAT32,
+    e138 FLOAT32, e139 FLOAT32, e140 FLOAT32, e141 FLOAT32, e142 FLOAT32, e143 FLOAT32, e144 FLOAT32, e145 FLOAT32,
+    e146 FLOAT32, e147 FLOAT32, e148 FLOAT32, e149 FLOAT32, e150 FLOAT32, e151 FLOAT32, e152 FLOAT32, e153 FLOAT32,
+    e154 FLOAT32, e155 FLOAT32, e156 FLOAT32, e157 FLOAT32, e158 FLOAT32, e159 FLOAT32, e160 FLOAT32, e161 FLOAT32,
+    e162 FLOAT32, e163 FLOAT32, e164 FLOAT32, e165 FLOAT32, e166 FLOAT32, e167 FLOAT32, e168 FLOAT32, e169 FLOAT32,
+    e170 FLOAT32, e171 FLOAT32, e172 FLOAT32, e173 FLOAT32, e174 FLOAT32, e175 FLOAT32, e176 FLOAT32, e177 FLOAT32,
+    e178 FLOAT32, e179 FLOAT32, e180 FLOAT32, e181 FLOAT32, e182 FLOAT32, e183 FLOAT32, e184 FLOAT32, e185 FLOAT32,
+    e186 FLOAT32, e187 FLOAT32, e188 FLOAT32, e189 FLOAT32, e190 FLOAT32, e191 FLOAT32, e192 FLOAT32, e193 FLOAT32,
+    e194 FLOAT32, e195 FLOAT32, e196 FLOAT32, e197 FLOAT32, e198 FLOAT32, e199 FLOAT32, e200 FLOAT32, e201 FLOAT32,
+    e202 FLOAT32, e203 FLOAT32, e204 FLOAT32, e205 FLOAT32, e206 FLOAT32, e207 FLOAT32, e208 FLOAT32, e209 FLOAT32,
+    e210 FLOAT32, e211 FLOAT32, e212 FLOAT32, e213 FLOAT32, e214 FLOAT32, e215 FLOAT32, e216 FLOAT32, e217 FLOAT32,
+    e218 FLOAT32, e219 FLOAT32, e220 FLOAT32, e221 FLOAT32, e222 FLOAT32, e223 FLOAT32, e224 FLOAT32, e225 FLOAT32,
+    e226 FLOAT32, e227 FLOAT32, e228 FLOAT32, e229 FLOAT32, e230 FLOAT32, e231 FLOAT32, e232 FLOAT32, e233 FLOAT32,
+    e234 FLOAT32, e235 FLOAT32, e236 FLOAT32, e237 FLOAT32, e238 FLOAT32, e239 FLOAT32, e240 FLOAT32, e241 FLOAT32,
+    e242 FLOAT32, e243 FLOAT32, e244 FLOAT32, e245 FLOAT32, e246 FLOAT32, e247 FLOAT32, e248 FLOAT32, e249 FLOAT32,
+    e250 FLOAT32, e251 FLOAT32, e252 FLOAT32, e253 FLOAT32, e254 FLOAT32, e255 FLOAT32, e256 FLOAT32, e257 FLOAT32,
+    e258 FLOAT32, e259 FLOAT32, e260 FLOAT32, e261 FLOAT32, e262 FLOAT32, e263 FLOAT32, e264 FLOAT32, e265 FLOAT32,
+    e266 FLOAT32, e267 FLOAT32, e268 FLOAT32, e269 FLOAT32, e270 FLOAT32, e271 FLOAT32, e272 FLOAT32, e273 FLOAT32,
+    e274 FLOAT32, e275 FLOAT32, e276 FLOAT32, e277 FLOAT32, e278 FLOAT32, e279 FLOAT32, e280 FLOAT32, e281 FLOAT32,
+    e282 FLOAT32, e283 FLOAT32, e284 FLOAT32, e285 FLOAT32, e286 FLOAT32, e287 FLOAT32, e288 FLOAT32, e289 FLOAT32,
+    e290 FLOAT32, e291 FLOAT32, e292 FLOAT32, e293 FLOAT32, e294 FLOAT32, e295 FLOAT32, e296 FLOAT32, e297 FLOAT32,
+    e298 FLOAT32, e299 FLOAT32, e300 FLOAT32, e301 FLOAT32, e302 FLOAT32, e303 FLOAT32, e304 FLOAT32, e305 FLOAT32,
+    e306 FLOAT32, e307 FLOAT32, e308 FLOAT32, e309 FLOAT32, e310 FLOAT32, e311 FLOAT32, e312 FLOAT32, e313 FLOAT32,
+    e314 FLOAT32, e315 FLOAT32, e316 FLOAT32, e317 FLOAT32, e318 FLOAT32, e319 FLOAT32, e320 FLOAT32, e321 FLOAT32,
+    e322 FLOAT32, e323 FLOAT32, e324 FLOAT32, e325 FLOAT32, e326 FLOAT32, e327 FLOAT32, e328 FLOAT32, e329 FLOAT32,
+    e330 FLOAT32, e331 FLOAT32, e332 FLOAT32, e333 FLOAT32, e334 FLOAT32, e335 FLOAT32, e336 FLOAT32, e337 FLOAT32,
+    e338 FLOAT32, e339 FLOAT32, e340 FLOAT32, e341 FLOAT32, e342 FLOAT32, e343 FLOAT32, e344 FLOAT32, e345 FLOAT32,
+    e346 FLOAT32, e347 FLOAT32, e348 FLOAT32, e349 FLOAT32, e350 FLOAT32, e351 FLOAT32, e352 FLOAT32, e353 FLOAT32,
+    e354 FLOAT32, e355 FLOAT32, e356 FLOAT32, e357 FLOAT32, e358 FLOAT32, e359 FLOAT32, e360 FLOAT32, e361 FLOAT32,
+    e362 FLOAT32, e363 FLOAT32, e364 FLOAT32, e365 FLOAT32, e366 FLOAT32, e367 FLOAT32, e368 FLOAT32, e369 FLOAT32,
+    e370 FLOAT32, e371 FLOAT32, e372 FLOAT32, e373 FLOAT32, e374 FLOAT32, e375 FLOAT32, e376 FLOAT32, e377 FLOAT32,
+    e378 FLOAT32, e379 FLOAT32, e380 FLOAT32, e381 FLOAT32, e382 FLOAT32, e383 FLOAT32, e384 FLOAT32, e385 FLOAT32,
+    e386 FLOAT32, e387 FLOAT32, e388 FLOAT32, e389 FLOAT32, e390 FLOAT32, e391 FLOAT32, e392 FLOAT32, e393 FLOAT32,
+    e394 FLOAT32, e395 FLOAT32, e396 FLOAT32, e397 FLOAT32, e398 FLOAT32, e399 FLOAT32, e400 FLOAT32, e401 FLOAT32,
+    e402 FLOAT32, e403 FLOAT32, e404 FLOAT32, e405 FLOAT32, e406 FLOAT32, e407 FLOAT32, e408 FLOAT32, e409 FLOAT32,
+    e410 FLOAT32, e411 FLOAT32, e412 FLOAT32, e413 FLOAT32, e414 FLOAT32, e415 FLOAT32, e416 FLOAT32, e417 FLOAT32,
+    e418 FLOAT32, e419 FLOAT32, e420 FLOAT32, e421 FLOAT32, e422 FLOAT32, e423 FLOAT32, e424 FLOAT32, e425 FLOAT32,
+    e426 FLOAT32, e427 FLOAT32, e428 FLOAT32, e429 FLOAT32, e430 FLOAT32, e431 FLOAT32, e432 FLOAT32, e433 FLOAT32,
+    e434 FLOAT32, e435 FLOAT32, e436 FLOAT32, e437 FLOAT32, e438 FLOAT32, e439 FLOAT32, e440 FLOAT32, e441 FLOAT32,
+    e442 FLOAT32, e443 FLOAT32, e444 FLOAT32, e445 FLOAT32, e446 FLOAT32, e447 FLOAT32, e448 FLOAT32, e449 FLOAT32,
+    e450 FLOAT32, e451 FLOAT32, e452 FLOAT32, e453 FLOAT32, e454 FLOAT32, e455 FLOAT32, e456 FLOAT32, e457 FLOAT32,
+    e458 FLOAT32, e459 FLOAT32, e460 FLOAT32, e461 FLOAT32, e462 FLOAT32, e463 FLOAT32, e464 FLOAT32, e465 FLOAT32,
+    e466 FLOAT32, e467 FLOAT32, e468 FLOAT32, e469 FLOAT32, e470 FLOAT32, e471 FLOAT32, e472 FLOAT32, e473 FLOAT32,
+    e474 FLOAT32, e475 FLOAT32, e476 FLOAT32, e477 FLOAT32, e478 FLOAT32, e479 FLOAT32, e480 FLOAT32, e481 FLOAT32,
+    e482 FLOAT32, e483 FLOAT32, e484 FLOAT32, e485 FLOAT32, e486 FLOAT32, e487 FLOAT32, e488 FLOAT32, e489 FLOAT32,
+    e490 FLOAT32, e491 FLOAT32, e492 FLOAT32, e493 FLOAT32, e494 FLOAT32, e495 FLOAT32, e496 FLOAT32, e497 FLOAT32,
+    e498 FLOAT32, e499 FLOAT32);
+
+CREATE MODEL teamHead ('model/team_baseline/team_head')
+INPUT (embeddings VARSIZED, coords VARSIZED, mask VARSIZED)
+OUTPUT (
+    mag0_alpha FLOAT32, mag0_mu FLOAT32, mag0_sigma FLOAT32,
+    mag1_alpha FLOAT32, mag1_mu FLOAT32, mag1_sigma FLOAT32,
+    mag2_alpha FLOAT32, mag2_mu FLOAT32, mag2_sigma FLOAT32,
+    mag3_alpha FLOAT32, mag3_mu FLOAT32, mag3_sigma FLOAT32,
+    mag4_alpha FLOAT32, mag4_mu FLOAT32, mag4_sigma FLOAT32,
+    loc0_alpha FLOAT32, loc0_lat FLOAT32, loc0_lon FLOAT32, loc0_depth FLOAT32, loc0_sigma_lat FLOAT32, loc0_sigma_lon FLOAT32, loc0_sigma_depth FLOAT32,
+    loc1_alpha FLOAT32, loc1_lat FLOAT32, loc1_lon FLOAT32, loc1_depth FLOAT32, loc1_sigma_lat FLOAT32, loc1_sigma_lon FLOAT32, loc1_sigma_depth FLOAT32,
+    loc2_alpha FLOAT32, loc2_lat FLOAT32, loc2_lon FLOAT32, loc2_depth FLOAT32, loc2_sigma_lat FLOAT32, loc2_sigma_lon FLOAT32, loc2_sigma_depth FLOAT32,
+    loc3_alpha FLOAT32, loc3_lat FLOAT32, loc3_lon FLOAT32, loc3_depth FLOAT32, loc3_sigma_lat FLOAT32, loc3_sigma_lon FLOAT32, loc3_sigma_depth FLOAT32,
+    loc4_alpha FLOAT32, loc4_lat FLOAT32, loc4_lon FLOAT32, loc4_depth FLOAT32, loc4_sigma_lat FLOAT32, loc4_sigma_lon FLOAT32, loc4_sigma_depth FLOAT32,
+    loc5_alpha FLOAT32, loc5_lat FLOAT32, loc5_lon FLOAT32, loc5_depth FLOAT32, loc5_sigma_lat FLOAT32, loc5_sigma_lon FLOAT32, loc5_sigma_depth FLOAT32,
+    loc6_alpha FLOAT32, loc6_lat FLOAT32, loc6_lon FLOAT32, loc6_depth FLOAT32, loc6_sigma_lat FLOAT32, loc6_sigma_lon FLOAT32, loc6_sigma_depth FLOAT32,
+    loc7_alpha FLOAT32, loc7_lat FLOAT32, loc7_lon FLOAT32, loc7_depth FLOAT32, loc7_sigma_lat FLOAT32, loc7_sigma_lon FLOAT32, loc7_sigma_depth FLOAT32,
+    loc8_alpha FLOAT32, loc8_lat FLOAT32, loc8_lon FLOAT32, loc8_depth FLOAT32, loc8_sigma_lat FLOAT32, loc8_sigma_lon FLOAT32, loc8_sigma_depth FLOAT32,
+    loc9_alpha FLOAT32, loc9_lat FLOAT32, loc9_lon FLOAT32, loc9_depth FLOAT32, loc9_sigma_lat FLOAT32, loc9_sigma_lon FLOAT32, loc9_sigma_depth FLOAT32,
+    loc10_alpha FLOAT32, loc10_lat FLOAT32, loc10_lon FLOAT32, loc10_depth FLOAT32, loc10_sigma_lat FLOAT32, loc10_sigma_lon FLOAT32, loc10_sigma_depth FLOAT32,
+    loc11_alpha FLOAT32, loc11_lat FLOAT32, loc11_lon FLOAT32, loc11_depth FLOAT32, loc11_sigma_lat FLOAT32, loc11_sigma_lon FLOAT32, loc11_sigma_depth FLOAT32,
+    loc12_alpha FLOAT32, loc12_lat FLOAT32, loc12_lon FLOAT32, loc12_depth FLOAT32, loc12_sigma_lat FLOAT32, loc12_sigma_lon FLOAT32, loc12_sigma_depth FLOAT32,
+    loc13_alpha FLOAT32, loc13_lat FLOAT32, loc13_lon FLOAT32, loc13_depth FLOAT32, loc13_sigma_lat FLOAT32, loc13_sigma_lon FLOAT32, loc13_sigma_depth FLOAT32,
+    loc14_alpha FLOAT32, loc14_lat FLOAT32, loc14_lon FLOAT32, loc14_depth FLOAT32, loc14_sigma_lat FLOAT32, loc14_sigma_lon FLOAT32, loc14_sigma_depth FLOAT32);
+
+CREATE SINK stationEmbeddings(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL,
+    e1 FLOAT32 NOT NULL, e4 FLOAT32 NOT NULL, e5 FLOAT32 NOT NULL, embeddingSum FLOAT32 NOT NULL) TYPE File;
+CREATE SINK prediction(event_idx UINT64 NOT NULL, magnitude FLOAT32 NOT NULL,
+    latitude FLOAT64 NOT NULL, longitude FLOAT64 NOT NULL, depth_km FLOAT64 NOT NULL) TYPE File;
+
+# Every station encodes its own window: three embedding values that are non-zero at all stations and the sum of all 500.
+SELECT event_idx, station_slot, e1, e4, e5,
+    e0 + e1 + e2 + e3 + e4 + e5 + e6 + e7 + e8 + e9 + e10 + e11 + e12 + e13 + e14 + e15 + e16 + e17 + e18 + e19 + e20 +
+    e21 + e22 + e23 + e24 + e25 + e26 + e27 + e28 + e29 + e30 + e31 + e32 + e33 + e34 + e35 + e36 + e37 + e38 + e39 +
+    e40 + e41 + e42 + e43 + e44 + e45 + e46 + e47 + e48 + e49 + e50 + e51 + e52 + e53 + e54 + e55 + e56 + e57 + e58 +
+    e59 + e60 + e61 + e62 + e63 + e64 + e65 + e66 + e67 + e68 + e69 + e70 + e71 + e72 + e73 + e74 + e75 + e76 + e77 +
+    e78 + e79 + e80 + e81 + e82 + e83 + e84 + e85 + e86 + e87 + e88 + e89 + e90 + e91 + e92 + e93 + e94 + e95 + e96 +
+    e97 + e98 + e99 + e100 + e101 + e102 + e103 + e104 + e105 + e106 + e107 + e108 + e109 + e110 + e111 + e112 + e113 +
+    e114 + e115 + e116 + e117 + e118 + e119 + e120 + e121 + e122 + e123 + e124 + e125 + e126 + e127 + e128 + e129 +
+    e130 + e131 + e132 + e133 + e134 + e135 + e136 + e137 + e138 + e139 + e140 + e141 + e142 + e143 + e144 + e145 +
+    e146 + e147 + e148 + e149 + e150 + e151 + e152 + e153 + e154 + e155 + e156 + e157 + e158 + e159 + e160 + e161 +
+    e162 + e163 + e164 + e165 + e166 + e167 + e168 + e169 + e170 + e171 + e172 + e173 + e174 + e175 + e176 + e177 +
+    e178 + e179 + e180 + e181 + e182 + e183 + e184 + e185 + e186 + e187 + e188 + e189 + e190 + e191 + e192 + e193 +
+    e194 + e195 + e196 + e197 + e198 + e199 + e200 + e201 + e202 + e203 + e204 + e205 + e206 + e207 + e208 + e209 +
+    e210 + e211 + e212 + e213 + e214 + e215 + e216 + e217 + e218 + e219 + e220 + e221 + e222 + e223 + e224 + e225 +
+    e226 + e227 + e228 + e229 + e230 + e231 + e232 + e233 + e234 + e235 + e236 + e237 + e238 + e239 + e240 + e241 +
+    e242 + e243 + e244 + e245 + e246 + e247 + e248 + e249 + e250 + e251 + e252 + e253 + e254 + e255 + e256 + e257 +
+    e258 + e259 + e260 + e261 + e262 + e263 + e264 + e265 + e266 + e267 + e268 + e269 + e270 + e271 + e272 + e273 +
+    e274 + e275 + e276 + e277 + e278 + e279 + e280 + e281 + e282 + e283 + e284 + e285 + e286 + e287 + e288 + e289 +
+    e290 + e291 + e292 + e293 + e294 + e295 + e296 + e297 + e298 + e299 + e300 + e301 + e302 + e303 + e304 + e305 +
+    e306 + e307 + e308 + e309 + e310 + e311 + e312 + e313 + e314 + e315 + e316 + e317 + e318 + e319 + e320 + e321 +
+    e322 + e323 + e324 + e325 + e326 + e327 + e328 + e329 + e330 + e331 + e332 + e333 + e334 + e335 + e336 + e337 +
+    e338 + e339 + e340 + e341 + e342 + e343 + e344 + e345 + e346 + e347 + e348 + e349 + e350 + e351 + e352 + e353 +
+    e354 + e355 + e356 + e357 + e358 + e359 + e360 + e361 + e362 + e363 + e364 + e365 + e366 + e367 + e368 + e369 +
+    e370 + e371 + e372 + e373 + e374 + e375 + e376 + e377 + e378 + e379 + e380 + e381 + e382 + e383 + e384 + e385 +
+    e386 + e387 + e388 + e389 + e390 + e391 + e392 + e393 + e394 + e395 + e396 + e397 + e398 + e399 + e400 + e401 +
+    e402 + e403 + e404 + e405 + e406 + e407 + e408 + e409 + e410 + e411 + e412 + e413 + e414 + e415 + e416 + e417 +
+    e418 + e419 + e420 + e421 + e422 + e423 + e424 + e425 + e426 + e427 + e428 + e429 + e430 + e431 + e432 + e433 +
+    e434 + e435 + e436 + e437 + e438 + e439 + e440 + e441 + e442 + e443 + e444 + e445 + e446 + e447 + e448 + e449 +
+    e450 + e451 + e452 + e453 + e454 + e455 + e456 + e457 + e458 + e459 + e460 + e461 + e462 + e463 + e464 + e465 +
+    e466 + e467 + e468 + e469 + e470 + e471 + e472 + e473 + e474 + e475 + e476 + e477 + e478 + e479 + e480 + e481 +
+    e482 + e483 + e484 + e485 + e486 + e487 + e488 + e489 + e490 + e491 + e492 + e493 + e494 + e495 + e496 + e497 +
+    e498 + e499 AS embeddingSum
+FROM (
+    SELECT event_idx, station_slot, window_start, lat, lon, depth,
+        e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15, e16, e17, e18, e19, e20, e21, e22, e23,
+        e24, e25, e26, e27, e28, e29, e30, e31, e32, e33, e34, e35, e36, e37, e38, e39, e40, e41, e42, e43, e44, e45,
+        e46, e47, e48, e49, e50, e51, e52, e53, e54, e55, e56, e57, e58, e59, e60, e61, e62, e63, e64, e65, e66, e67,
+        e68, e69, e70, e71, e72, e73, e74, e75, e76, e77, e78, e79, e80, e81, e82, e83, e84, e85, e86, e87, e88, e89,
+        e90, e91, e92, e93, e94, e95, e96, e97, e98, e99, e100, e101, e102, e103, e104, e105, e106, e107, e108, e109,
+        e110, e111, e112, e113, e114, e115, e116, e117, e118, e119, e120, e121, e122, e123, e124, e125, e126, e127,
+        e128, e129, e130, e131, e132, e133, e134, e135, e136, e137, e138, e139, e140, e141, e142, e143, e144, e145,
+        e146, e147, e148, e149, e150, e151, e152, e153, e154, e155, e156, e157, e158, e159, e160, e161, e162, e163,
+        e164, e165, e166, e167, e168, e169, e170, e171, e172, e173, e174, e175, e176, e177, e178, e179, e180, e181,
+        e182, e183, e184, e185, e186, e187, e188, e189, e190, e191, e192, e193, e194, e195, e196, e197, e198, e199,
+        e200, e201, e202, e203, e204, e205, e206, e207, e208, e209, e210, e211, e212, e213, e214, e215, e216, e217,
+        e218, e219, e220, e221, e222, e223, e224, e225, e226, e227, e228, e229, e230, e231, e232, e233, e234, e235,
+        e236, e237, e238, e239, e240, e241, e242, e243, e244, e245, e246, e247, e248, e249, e250, e251, e252, e253,
+        e254, e255, e256, e257, e258, e259, e260, e261, e262, e263, e264, e265, e266, e267, e268, e269, e270, e271,
+        e272, e273, e274, e275, e276, e277, e278, e279, e280, e281, e282, e283, e284, e285, e286, e287, e288, e289,
+        e290, e291, e292, e293, e294, e295, e296, e297, e298, e299, e300, e301, e302, e303, e304, e305, e306, e307,
+        e308, e309, e310, e311, e312, e313, e314, e315, e316, e317, e318, e319, e320, e321, e322, e323, e324, e325,
+        e326, e327, e328, e329, e330, e331, e332, e333, e334, e335, e336, e337, e338, e339, e340, e341, e342, e343,
+        e344, e345, e346, e347, e348, e349, e350, e351, e352, e353, e354, e355, e356, e357, e358, e359, e360, e361,
+        e362, e363, e364, e365, e366, e367, e368, e369, e370, e371, e372, e373, e374, e375, e376, e377, e378, e379,
+        e380, e381, e382, e383, e384, e385, e386, e387, e388, e389, e390, e391, e392, e393, e394, e395, e396, e397,
+        e398, e399, e400, e401, e402, e403, e404, e405, e406, e407, e408, e409, e410, e411, e412, e413, e414, e415,
+        e416, e417, e418, e419, e420, e421, e422, e423, e424, e425, e426, e427, e428, e429, e430, e431, e432, e433,
+        e434, e435, e436, e437, e438, e439, e440, e441, e442, e443, e444, e445, e446, e447, e448, e449, e450, e451,
+        e452, e453, e454, e455, e456, e457, e458, e459, e460, e461, e462, e463, e464, e465, e466, e467, e468, e469,
+        e470, e471, e472, e473, e474, e475, e476, e477, e478, e479, e480, e481, e482, e483, e484, e485, e486, e487,
+        e488, e489, e490, e491, e492, e493, e494, e495, e496, e497, e498, e499
+    FROM MODEL_INFERENCE(teamEncoder, (
+        SELECT event_idx, station_slot, start AS window_start,
+            TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+            MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+        FROM station1
+        GROUP BY event_idx, station_slot
+        WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+    UNION
+    SELECT event_idx, station_slot, window_start, lat, lon, depth,
+        e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15, e16, e17, e18, e19, e20, e21, e22, e23,
+        e24, e25, e26, e27, e28, e29, e30, e31, e32, e33, e34, e35, e36, e37, e38, e39, e40, e41, e42, e43, e44, e45,
+        e46, e47, e48, e49, e50, e51, e52, e53, e54, e55, e56, e57, e58, e59, e60, e61, e62, e63, e64, e65, e66, e67,
+        e68, e69, e70, e71, e72, e73, e74, e75, e76, e77, e78, e79, e80, e81, e82, e83, e84, e85, e86, e87, e88, e89,
+        e90, e91, e92, e93, e94, e95, e96, e97, e98, e99, e100, e101, e102, e103, e104, e105, e106, e107, e108, e109,
+        e110, e111, e112, e113, e114, e115, e116, e117, e118, e119, e120, e121, e122, e123, e124, e125, e126, e127,
+        e128, e129, e130, e131, e132, e133, e134, e135, e136, e137, e138, e139, e140, e141, e142, e143, e144, e145,
+        e146, e147, e148, e149, e150, e151, e152, e153, e154, e155, e156, e157, e158, e159, e160, e161, e162, e163,
+        e164, e165, e166, e167, e168, e169, e170, e171, e172, e173, e174, e175, e176, e177, e178, e179, e180, e181,
+        e182, e183, e184, e185, e186, e187, e188, e189, e190, e191, e192, e193, e194, e195, e196, e197, e198, e199,
+        e200, e201, e202, e203, e204, e205, e206, e207, e208, e209, e210, e211, e212, e213, e214, e215, e216, e217,
+        e218, e219, e220, e221, e222, e223, e224, e225, e226, e227, e228, e229, e230, e231, e232, e233, e234, e235,
+        e236, e237, e238, e239, e240, e241, e242, e243, e244, e245, e246, e247, e248, e249, e250, e251, e252, e253,
+        e254, e255, e256, e257, e258, e259, e260, e261, e262, e263, e264, e265, e266, e267, e268, e269, e270, e271,
+        e272, e273, e274, e275, e276, e277, e278, e279, e280, e281, e282, e283, e284, e285, e286, e287, e288, e289,
+        e290, e291, e292, e293, e294, e295, e296, e297, e298, e299, e300, e301, e302, e303, e304, e305, e306, e307,
+        e308, e309, e310, e311, e312, e313, e314, e315, e316, e317, e318, e319, e320, e321, e322, e323, e324, e325,
+        e326, e327, e328, e329, e330, e331, e332, e333, e334, e335, e336, e337, e338, e339, e340, e341, e342, e343,
+        e344, e345, e346, e347, e348, e349, e350, e351, e352, e353, e354, e355, e356, e357, e358, e359, e360, e361,
+        e362, e363, e364, e365, e366, e367, e368, e369, e370, e371, e372, e373, e374, e375, e376, e377, e378, e379,
+        e380, e381, e382, e383, e384, e385, e386, e387, e388, e389, e390, e391, e392, e393, e394, e395, e396, e397,
+        e398, e399, e400, e401, e402, e403, e404, e405, e406, e407, e408, e409, e410, e411, e412, e413, e414, e415,
+        e416, e417, e418, e419, e420, e421, e422, e423, e424, e425, e426, e427, e428, e429, e430, e431, e432, e433,
+        e434, e435, e436, e437, e438, e439, e440, e441, e442, e443, e444, e445, e446, e447, e448, e449, e450, e451,
+        e452, e453, e454, e455, e456, e457, e458, e459, e460, e461, e462, e463, e464, e465, e466, e467, e468, e469,
+        e470, e471, e472, e473, e474, e475, e476, e477, e478, e479, e480, e481, e482, e483, e484, e485, e486, e487,
+        e488, e489, e490, e491, e492, e493, e494, e495, e496, e497, e498, e499
+    FROM MODEL_INFERENCE(teamEncoder, (
+        SELECT event_idx, station_slot, start AS window_start,
+            TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+            MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+        FROM station2
+        GROUP BY event_idx, station_slot
+        WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+    UNION
+    SELECT event_idx, station_slot, window_start, lat, lon, depth,
+        e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15, e16, e17, e18, e19, e20, e21, e22, e23,
+        e24, e25, e26, e27, e28, e29, e30, e31, e32, e33, e34, e35, e36, e37, e38, e39, e40, e41, e42, e43, e44, e45,
+        e46, e47, e48, e49, e50, e51, e52, e53, e54, e55, e56, e57, e58, e59, e60, e61, e62, e63, e64, e65, e66, e67,
+        e68, e69, e70, e71, e72, e73, e74, e75, e76, e77, e78, e79, e80, e81, e82, e83, e84, e85, e86, e87, e88, e89,
+        e90, e91, e92, e93, e94, e95, e96, e97, e98, e99, e100, e101, e102, e103, e104, e105, e106, e107, e108, e109,
+        e110, e111, e112, e113, e114, e115, e116, e117, e118, e119, e120, e121, e122, e123, e124, e125, e126, e127,
+        e128, e129, e130, e131, e132, e133, e134, e135, e136, e137, e138, e139, e140, e141, e142, e143, e144, e145,
+        e146, e147, e148, e149, e150, e151, e152, e153, e154, e155, e156, e157, e158, e159, e160, e161, e162, e163,
+        e164, e165, e166, e167, e168, e169, e170, e171, e172, e173, e174, e175, e176, e177, e178, e179, e180, e181,
+        e182, e183, e184, e185, e186, e187, e188, e189, e190, e191, e192, e193, e194, e195, e196, e197, e198, e199,
+        e200, e201, e202, e203, e204, e205, e206, e207, e208, e209, e210, e211, e212, e213, e214, e215, e216, e217,
+        e218, e219, e220, e221, e222, e223, e224, e225, e226, e227, e228, e229, e230, e231, e232, e233, e234, e235,
+        e236, e237, e238, e239, e240, e241, e242, e243, e244, e245, e246, e247, e248, e249, e250, e251, e252, e253,
+        e254, e255, e256, e257, e258, e259, e260, e261, e262, e263, e264, e265, e266, e267, e268, e269, e270, e271,
+        e272, e273, e274, e275, e276, e277, e278, e279, e280, e281, e282, e283, e284, e285, e286, e287, e288, e289,
+        e290, e291, e292, e293, e294, e295, e296, e297, e298, e299, e300, e301, e302, e303, e304, e305, e306, e307,
+        e308, e309, e310, e311, e312, e313, e314, e315, e316, e317, e318, e319, e320, e321, e322, e323, e324, e325,
+        e326, e327, e328, e329, e330, e331, e332, e333, e334, e335, e336, e337, e338, e339, e340, e341, e342, e343,
+        e344, e345, e346, e347, e348, e349, e350, e351, e352, e353, e354, e355, e356, e357, e358, e359, e360, e361,
+        e362, e363, e364, e365, e366, e367, e368, e369, e370, e371, e372, e373, e374, e375, e376, e377, e378, e379,
+        e380, e381, e382, e383, e384, e385, e386, e387, e388, e389, e390, e391, e392, e393, e394, e395, e396, e397,
+        e398, e399, e400, e401, e402, e403, e404, e405, e406, e407, e408, e409, e410, e411, e412, e413, e414, e415,
+        e416, e417, e418, e419, e420, e421, e422, e423, e424, e425, e426, e427, e428, e429, e430, e431, e432, e433,
+        e434, e435, e436, e437, e438, e439, e440, e441, e442, e443, e444, e445, e446, e447, e448, e449, e450, e451,
+        e452, e453, e454, e455, e456, e457, e458, e459, e460, e461, e462, e463, e464, e465, e466, e467, e468, e469,
+        e470, e471, e472, e473, e474, e475, e476, e477, e478, e479, e480, e481, e482, e483, e484, e485, e486, e487,
+        e488, e489, e490, e491, e492, e493, e494, e495, e496, e497, e498, e499
+    FROM MODEL_INFERENCE(teamEncoder, (
+        SELECT event_idx, station_slot, start AS window_start,
+            TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+            MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+        FROM station3
+        GROUP BY event_idx, station_slot
+        WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+    UNION
+    SELECT event_idx, station_slot, window_start, lat, lon, depth,
+        e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15, e16, e17, e18, e19, e20, e21, e22, e23,
+        e24, e25, e26, e27, e28, e29, e30, e31, e32, e33, e34, e35, e36, e37, e38, e39, e40, e41, e42, e43, e44, e45,
+        e46, e47, e48, e49, e50, e51, e52, e53, e54, e55, e56, e57, e58, e59, e60, e61, e62, e63, e64, e65, e66, e67,
+        e68, e69, e70, e71, e72, e73, e74, e75, e76, e77, e78, e79, e80, e81, e82, e83, e84, e85, e86, e87, e88, e89,
+        e90, e91, e92, e93, e94, e95, e96, e97, e98, e99, e100, e101, e102, e103, e104, e105, e106, e107, e108, e109,
+        e110, e111, e112, e113, e114, e115, e116, e117, e118, e119, e120, e121, e122, e123, e124, e125, e126, e127,
+        e128, e129, e130, e131, e132, e133, e134, e135, e136, e137, e138, e139, e140, e141, e142, e143, e144, e145,
+        e146, e147, e148, e149, e150, e151, e152, e153, e154, e155, e156, e157, e158, e159, e160, e161, e162, e163,
+        e164, e165, e166, e167, e168, e169, e170, e171, e172, e173, e174, e175, e176, e177, e178, e179, e180, e181,
+        e182, e183, e184, e185, e186, e187, e188, e189, e190, e191, e192, e193, e194, e195, e196, e197, e198, e199,
+        e200, e201, e202, e203, e204, e205, e206, e207, e208, e209, e210, e211, e212, e213, e214, e215, e216, e217,
+        e218, e219, e220, e221, e222, e223, e224, e225, e226, e227, e228, e229, e230, e231, e232, e233, e234, e235,
+        e236, e237, e238, e239, e240, e241, e242, e243, e244, e245, e246, e247, e248, e249, e250, e251, e252, e253,
+        e254, e255, e256, e257, e258, e259, e260, e261, e262, e263, e264, e265, e266, e267, e268, e269, e270, e271,
+        e272, e273, e274, e275, e276, e277, e278, e279, e280, e281, e282, e283, e284, e285, e286, e287, e288, e289,
+        e290, e291, e292, e293, e294, e295, e296, e297, e298, e299, e300, e301, e302, e303, e304, e305, e306, e307,
+        e308, e309, e310, e311, e312, e313, e314, e315, e316, e317, e318, e319, e320, e321, e322, e323, e324, e325,
+        e326, e327, e328, e329, e330, e331, e332, e333, e334, e335, e336, e337, e338, e339, e340, e341, e342, e343,
+        e344, e345, e346, e347, e348, e349, e350, e351, e352, e353, e354, e355, e356, e357, e358, e359, e360, e361,
+        e362, e363, e364, e365, e366, e367, e368, e369, e370, e371, e372, e373, e374, e375, e376, e377, e378, e379,
+        e380, e381, e382, e383, e384, e385, e386, e387, e388, e389, e390, e391, e392, e393, e394, e395, e396, e397,
+        e398, e399, e400, e401, e402, e403, e404, e405, e406, e407, e408, e409, e410, e411, e412, e413, e414, e415,
+        e416, e417, e418, e419, e420, e421, e422, e423, e424, e425, e426, e427, e428, e429, e430, e431, e432, e433,
+        e434, e435, e436, e437, e438, e439, e440, e441, e442, e443, e444, e445, e446, e447, e448, e449, e450, e451,
+        e452, e453, e454, e455, e456, e457, e458, e459, e460, e461, e462, e463, e464, e465, e466, e467, e468, e469,
+        e470, e471, e472, e473, e474, e475, e476, e477, e478, e479, e480, e481, e482, e483, e484, e485, e486, e487,
+        e488, e489, e490, e491, e492, e493, e494, e495, e496, e497, e498, e499
+    FROM MODEL_INFERENCE(teamEncoder, (
+        SELECT event_idx, station_slot, start AS window_start,
+            TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+            MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+        FROM station4
+        GROUP BY event_idx, station_slot
+        WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+)
+INTO stationEmbeddings;
+----
+3,0,0.177127868,0.0299258679,0.0441149361,20.2564697
+3,1,0.450185061,0.0548014194,0.15596953,52.7890358
+3,2,0.282821089,0.00951398816,0.103818014,34.5550575
+3,3,0.409050852,0.0370426029,0.16984649,55.2516899
+
+# sink-node stacks the embeddings by station slot and runs the head. The result equals the unpartitioned model's.
+SELECT event_idx,
+    mag0_alpha * mag0_mu + mag1_alpha * mag1_mu + mag2_alpha * mag2_mu + mag3_alpha * mag3_mu + mag4_alpha * mag4_mu AS magnitude,
+    (loc0_alpha * loc0_lat + loc1_alpha * loc1_lat + loc2_alpha * loc2_lat + loc3_alpha * loc3_lat +
+        loc4_alpha * loc4_lat + loc5_alpha * loc5_lat + loc6_alpha * loc6_lat + loc7_alpha * loc7_lat +
+        loc8_alpha * loc8_lat + loc9_alpha * loc9_lat + loc10_alpha * loc10_lat + loc11_alpha * loc11_lat +
+        loc12_alpha * loc12_lat + loc13_alpha * loc13_lat + loc14_alpha * loc14_lat)
+        * 100.0 / 111.195 + 42.0 AS latitude,
+    (loc0_alpha * loc0_lon + loc1_alpha * loc1_lon + loc2_alpha * loc2_lon + loc3_alpha * loc3_lon +
+        loc4_alpha * loc4_lon + loc5_alpha * loc5_lon + loc6_alpha * loc6_lon + loc7_alpha * loc7_lon +
+        loc8_alpha * loc8_lon + loc9_alpha * loc9_lon + loc10_alpha * loc10_lon + loc11_alpha * loc11_lon +
+        loc12_alpha * loc12_lon + loc13_alpha * loc13_lon + loc14_alpha * loc14_lon)
+        * 100.0 / 111.195 + 12.0 AS longitude,
+    (loc0_alpha * loc0_depth + loc1_alpha * loc1_depth + loc2_alpha * loc2_depth + loc3_alpha * loc3_depth +
+        loc4_alpha * loc4_depth + loc5_alpha * loc5_depth + loc6_alpha * loc6_depth + loc7_alpha * loc7_depth +
+        loc8_alpha * loc8_depth + loc9_alpha * loc9_depth + loc10_alpha * loc10_depth + loc11_alpha * loc11_depth +
+        loc12_alpha * loc12_depth + loc13_alpha * loc13_depth + loc14_alpha * loc14_depth)
+        * 100.0 AS depth_km
+FROM MODEL_INFERENCE(teamHead, (
+    SELECT event_idx,
+        TENSOR_AGG(
+            e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15, e16, e17, e18, e19, e20, e21, e22,
+            e23, e24, e25, e26, e27, e28, e29, e30, e31, e32, e33, e34, e35, e36, e37, e38, e39, e40, e41, e42, e43,
+            e44, e45, e46, e47, e48, e49, e50, e51, e52, e53, e54, e55, e56, e57, e58, e59, e60, e61, e62, e63, e64,
+            e65, e66, e67, e68, e69, e70, e71, e72, e73, e74, e75, e76, e77, e78, e79, e80, e81, e82, e83, e84, e85,
+            e86, e87, e88, e89, e90, e91, e92, e93, e94, e95, e96, e97, e98, e99, e100, e101, e102, e103, e104, e105,
+            e106, e107, e108, e109, e110, e111, e112, e113, e114, e115, e116, e117, e118, e119, e120, e121, e122, e123,
+            e124, e125, e126, e127, e128, e129, e130, e131, e132, e133, e134, e135, e136, e137, e138, e139, e140, e141,
+            e142, e143, e144, e145, e146, e147, e148, e149, e150, e151, e152, e153, e154, e155, e156, e157, e158, e159,
+            e160, e161, e162, e163, e164, e165, e166, e167, e168, e169, e170, e171, e172, e173, e174, e175, e176, e177,
+            e178, e179, e180, e181, e182, e183, e184, e185, e186, e187, e188, e189, e190, e191, e192, e193, e194, e195,
+            e196, e197, e198, e199, e200, e201, e202, e203, e204, e205, e206, e207, e208, e209, e210, e211, e212, e213,
+            e214, e215, e216, e217, e218, e219, e220, e221, e222, e223, e224, e225, e226, e227, e228, e229, e230, e231,
+            e232, e233, e234, e235, e236, e237, e238, e239, e240, e241, e242, e243, e244, e245, e246, e247, e248, e249,
+            e250, e251, e252, e253, e254, e255, e256, e257, e258, e259, e260, e261, e262, e263, e264, e265, e266, e267,
+            e268, e269, e270, e271, e272, e273, e274, e275, e276, e277, e278, e279, e280, e281, e282, e283, e284, e285,
+            e286, e287, e288, e289, e290, e291, e292, e293, e294, e295, e296, e297, e298, e299, e300, e301, e302, e303,
+            e304, e305, e306, e307, e308, e309, e310, e311, e312, e313, e314, e315, e316, e317, e318, e319, e320, e321,
+            e322, e323, e324, e325, e326, e327, e328, e329, e330, e331, e332, e333, e334, e335, e336, e337, e338, e339,
+            e340, e341, e342, e343, e344, e345, e346, e347, e348, e349, e350, e351, e352, e353, e354, e355, e356, e357,
+            e358, e359, e360, e361, e362, e363, e364, e365, e366, e367, e368, e369, e370, e371, e372, e373, e374, e375,
+            e376, e377, e378, e379, e380, e381, e382, e383, e384, e385, e386, e387, e388, e389, e390, e391, e392, e393,
+            e394, e395, e396, e397, e398, e399, e400, e401, e402, e403, e404, e405, e406, e407, e408, e409, e410, e411,
+            e412, e413, e414, e415, e416, e417, e418, e419, e420, e421, e422, e423, e424, e425, e426, e427, e428, e429,
+            e430, e431, e432, e433, e434, e435, e436, e437, e438, e439, e440, e441, e442, e443, e444, e445, e446, e447,
+            e448, e449, e450, e451, e452, e453, e454, e455, e456, e457, e458, e459, e460, e461, e462, e463, e464, e465,
+            e466, e467, e468, e469, e470, e471, e472, e473, e474, e475, e476, e477, e478, e479, e480, e481, e482, e483,
+            e484, e485, e486, e487, e488, e489, e490, e491, e492, e493, e494, e495, e496, e497, e498, e499
+            AT (station_slot) SHAPE (25, 500)) AS embeddings,
+        TENSOR_AGG(lat, lon, depth AT (station_slot) SHAPE (25, 3)) AS coords,
+        TENSOR_AGG(FLOAT32(1) AT (station_slot) SHAPE (25)) AS mask
+    FROM (
+        SELECT event_idx, station_slot, window_start, lat, lon, depth,
+            e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15, e16, e17, e18, e19, e20, e21, e22,
+            e23, e24, e25, e26, e27, e28, e29, e30, e31, e32, e33, e34, e35, e36, e37, e38, e39, e40, e41, e42, e43,
+            e44, e45, e46, e47, e48, e49, e50, e51, e52, e53, e54, e55, e56, e57, e58, e59, e60, e61, e62, e63, e64,
+            e65, e66, e67, e68, e69, e70, e71, e72, e73, e74, e75, e76, e77, e78, e79, e80, e81, e82, e83, e84, e85,
+            e86, e87, e88, e89, e90, e91, e92, e93, e94, e95, e96, e97, e98, e99, e100, e101, e102, e103, e104, e105,
+            e106, e107, e108, e109, e110, e111, e112, e113, e114, e115, e116, e117, e118, e119, e120, e121, e122, e123,
+            e124, e125, e126, e127, e128, e129, e130, e131, e132, e133, e134, e135, e136, e137, e138, e139, e140, e141,
+            e142, e143, e144, e145, e146, e147, e148, e149, e150, e151, e152, e153, e154, e155, e156, e157, e158, e159,
+            e160, e161, e162, e163, e164, e165, e166, e167, e168, e169, e170, e171, e172, e173, e174, e175, e176, e177,
+            e178, e179, e180, e181, e182, e183, e184, e185, e186, e187, e188, e189, e190, e191, e192, e193, e194, e195,
+            e196, e197, e198, e199, e200, e201, e202, e203, e204, e205, e206, e207, e208, e209, e210, e211, e212, e213,
+            e214, e215, e216, e217, e218, e219, e220, e221, e222, e223, e224, e225, e226, e227, e228, e229, e230, e231,
+            e232, e233, e234, e235, e236, e237, e238, e239, e240, e241, e242, e243, e244, e245, e246, e247, e248, e249,
+            e250, e251, e252, e253, e254, e255, e256, e257, e258, e259, e260, e261, e262, e263, e264, e265, e266, e267,
+            e268, e269, e270, e271, e272, e273, e274, e275, e276, e277, e278, e279, e280, e281, e282, e283, e284, e285,
+            e286, e287, e288, e289, e290, e291, e292, e293, e294, e295, e296, e297, e298, e299, e300, e301, e302, e303,
+            e304, e305, e306, e307, e308, e309, e310, e311, e312, e313, e314, e315, e316, e317, e318, e319, e320, e321,
+            e322, e323, e324, e325, e326, e327, e328, e329, e330, e331, e332, e333, e334, e335, e336, e337, e338, e339,
+            e340, e341, e342, e343, e344, e345, e346, e347, e348, e349, e350, e351, e352, e353, e354, e355, e356, e357,
+            e358, e359, e360, e361, e362, e363, e364, e365, e366, e367, e368, e369, e370, e371, e372, e373, e374, e375,
+            e376, e377, e378, e379, e380, e381, e382, e383, e384, e385, e386, e387, e388, e389, e390, e391, e392, e393,
+            e394, e395, e396, e397, e398, e399, e400, e401, e402, e403, e404, e405, e406, e407, e408, e409, e410, e411,
+            e412, e413, e414, e415, e416, e417, e418, e419, e420, e421, e422, e423, e424, e425, e426, e427, e428, e429,
+            e430, e431, e432, e433, e434, e435, e436, e437, e438, e439, e440, e441, e442, e443, e444, e445, e446, e447,
+            e448, e449, e450, e451, e452, e453, e454, e455, e456, e457, e458, e459, e460, e461, e462, e463, e464, e465,
+            e466, e467, e468, e469, e470, e471, e472, e473, e474, e475, e476, e477, e478, e479, e480, e481, e482, e483,
+            e484, e485, e486, e487, e488, e489, e490, e491, e492, e493, e494, e495, e496, e497, e498, e499
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+            FROM station1
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+        UNION
+        SELECT event_idx, station_slot, window_start, lat, lon, depth,
+            e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15, e16, e17, e18, e19, e20, e21, e22,
+            e23, e24, e25, e26, e27, e28, e29, e30, e31, e32, e33, e34, e35, e36, e37, e38, e39, e40, e41, e42, e43,
+            e44, e45, e46, e47, e48, e49, e50, e51, e52, e53, e54, e55, e56, e57, e58, e59, e60, e61, e62, e63, e64,
+            e65, e66, e67, e68, e69, e70, e71, e72, e73, e74, e75, e76, e77, e78, e79, e80, e81, e82, e83, e84, e85,
+            e86, e87, e88, e89, e90, e91, e92, e93, e94, e95, e96, e97, e98, e99, e100, e101, e102, e103, e104, e105,
+            e106, e107, e108, e109, e110, e111, e112, e113, e114, e115, e116, e117, e118, e119, e120, e121, e122, e123,
+            e124, e125, e126, e127, e128, e129, e130, e131, e132, e133, e134, e135, e136, e137, e138, e139, e140, e141,
+            e142, e143, e144, e145, e146, e147, e148, e149, e150, e151, e152, e153, e154, e155, e156, e157, e158, e159,
+            e160, e161, e162, e163, e164, e165, e166, e167, e168, e169, e170, e171, e172, e173, e174, e175, e176, e177,
+            e178, e179, e180, e181, e182, e183, e184, e185, e186, e187, e188, e189, e190, e191, e192, e193, e194, e195,
+            e196, e197, e198, e199, e200, e201, e202, e203, e204, e205, e206, e207, e208, e209, e210, e211, e212, e213,
+            e214, e215, e216, e217, e218, e219, e220, e221, e222, e223, e224, e225, e226, e227, e228, e229, e230, e231,
+            e232, e233, e234, e235, e236, e237, e238, e239, e240, e241, e242, e243, e244, e245, e246, e247, e248, e249,
+            e250, e251, e252, e253, e254, e255, e256, e257, e258, e259, e260, e261, e262, e263, e264, e265, e266, e267,
+            e268, e269, e270, e271, e272, e273, e274, e275, e276, e277, e278, e279, e280, e281, e282, e283, e284, e285,
+            e286, e287, e288, e289, e290, e291, e292, e293, e294, e295, e296, e297, e298, e299, e300, e301, e302, e303,
+            e304, e305, e306, e307, e308, e309, e310, e311, e312, e313, e314, e315, e316, e317, e318, e319, e320, e321,
+            e322, e323, e324, e325, e326, e327, e328, e329, e330, e331, e332, e333, e334, e335, e336, e337, e338, e339,
+            e340, e341, e342, e343, e344, e345, e346, e347, e348, e349, e350, e351, e352, e353, e354, e355, e356, e357,
+            e358, e359, e360, e361, e362, e363, e364, e365, e366, e367, e368, e369, e370, e371, e372, e373, e374, e375,
+            e376, e377, e378, e379, e380, e381, e382, e383, e384, e385, e386, e387, e388, e389, e390, e391, e392, e393,
+            e394, e395, e396, e397, e398, e399, e400, e401, e402, e403, e404, e405, e406, e407, e408, e409, e410, e411,
+            e412, e413, e414, e415, e416, e417, e418, e419, e420, e421, e422, e423, e424, e425, e426, e427, e428, e429,
+            e430, e431, e432, e433, e434, e435, e436, e437, e438, e439, e440, e441, e442, e443, e444, e445, e446, e447,
+            e448, e449, e450, e451, e452, e453, e454, e455, e456, e457, e458, e459, e460, e461, e462, e463, e464, e465,
+            e466, e467, e468, e469, e470, e471, e472, e473, e474, e475, e476, e477, e478, e479, e480, e481, e482, e483,
+            e484, e485, e486, e487, e488, e489, e490, e491, e492, e493, e494, e495, e496, e497, e498, e499
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+            FROM station2
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+        UNION
+        SELECT event_idx, station_slot, window_start, lat, lon, depth,
+            e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15, e16, e17, e18, e19, e20, e21, e22,
+            e23, e24, e25, e26, e27, e28, e29, e30, e31, e32, e33, e34, e35, e36, e37, e38, e39, e40, e41, e42, e43,
+            e44, e45, e46, e47, e48, e49, e50, e51, e52, e53, e54, e55, e56, e57, e58, e59, e60, e61, e62, e63, e64,
+            e65, e66, e67, e68, e69, e70, e71, e72, e73, e74, e75, e76, e77, e78, e79, e80, e81, e82, e83, e84, e85,
+            e86, e87, e88, e89, e90, e91, e92, e93, e94, e95, e96, e97, e98, e99, e100, e101, e102, e103, e104, e105,
+            e106, e107, e108, e109, e110, e111, e112, e113, e114, e115, e116, e117, e118, e119, e120, e121, e122, e123,
+            e124, e125, e126, e127, e128, e129, e130, e131, e132, e133, e134, e135, e136, e137, e138, e139, e140, e141,
+            e142, e143, e144, e145, e146, e147, e148, e149, e150, e151, e152, e153, e154, e155, e156, e157, e158, e159,
+            e160, e161, e162, e163, e164, e165, e166, e167, e168, e169, e170, e171, e172, e173, e174, e175, e176, e177,
+            e178, e179, e180, e181, e182, e183, e184, e185, e186, e187, e188, e189, e190, e191, e192, e193, e194, e195,
+            e196, e197, e198, e199, e200, e201, e202, e203, e204, e205, e206, e207, e208, e209, e210, e211, e212, e213,
+            e214, e215, e216, e217, e218, e219, e220, e221, e222, e223, e224, e225, e226, e227, e228, e229, e230, e231,
+            e232, e233, e234, e235, e236, e237, e238, e239, e240, e241, e242, e243, e244, e245, e246, e247, e248, e249,
+            e250, e251, e252, e253, e254, e255, e256, e257, e258, e259, e260, e261, e262, e263, e264, e265, e266, e267,
+            e268, e269, e270, e271, e272, e273, e274, e275, e276, e277, e278, e279, e280, e281, e282, e283, e284, e285,
+            e286, e287, e288, e289, e290, e291, e292, e293, e294, e295, e296, e297, e298, e299, e300, e301, e302, e303,
+            e304, e305, e306, e307, e308, e309, e310, e311, e312, e313, e314, e315, e316, e317, e318, e319, e320, e321,
+            e322, e323, e324, e325, e326, e327, e328, e329, e330, e331, e332, e333, e334, e335, e336, e337, e338, e339,
+            e340, e341, e342, e343, e344, e345, e346, e347, e348, e349, e350, e351, e352, e353, e354, e355, e356, e357,
+            e358, e359, e360, e361, e362, e363, e364, e365, e366, e367, e368, e369, e370, e371, e372, e373, e374, e375,
+            e376, e377, e378, e379, e380, e381, e382, e383, e384, e385, e386, e387, e388, e389, e390, e391, e392, e393,
+            e394, e395, e396, e397, e398, e399, e400, e401, e402, e403, e404, e405, e406, e407, e408, e409, e410, e411,
+            e412, e413, e414, e415, e416, e417, e418, e419, e420, e421, e422, e423, e424, e425, e426, e427, e428, e429,
+            e430, e431, e432, e433, e434, e435, e436, e437, e438, e439, e440, e441, e442, e443, e444, e445, e446, e447,
+            e448, e449, e450, e451, e452, e453, e454, e455, e456, e457, e458, e459, e460, e461, e462, e463, e464, e465,
+            e466, e467, e468, e469, e470, e471, e472, e473, e474, e475, e476, e477, e478, e479, e480, e481, e482, e483,
+            e484, e485, e486, e487, e488, e489, e490, e491, e492, e493, e494, e495, e496, e497, e498, e499
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+            FROM station3
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+        UNION
+        SELECT event_idx, station_slot, window_start, lat, lon, depth,
+            e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15, e16, e17, e18, e19, e20, e21, e22,
+            e23, e24, e25, e26, e27, e28, e29, e30, e31, e32, e33, e34, e35, e36, e37, e38, e39, e40, e41, e42, e43,
+            e44, e45, e46, e47, e48, e49, e50, e51, e52, e53, e54, e55, e56, e57, e58, e59, e60, e61, e62, e63, e64,
+            e65, e66, e67, e68, e69, e70, e71, e72, e73, e74, e75, e76, e77, e78, e79, e80, e81, e82, e83, e84, e85,
+            e86, e87, e88, e89, e90, e91, e92, e93, e94, e95, e96, e97, e98, e99, e100, e101, e102, e103, e104, e105,
+            e106, e107, e108, e109, e110, e111, e112, e113, e114, e115, e116, e117, e118, e119, e120, e121, e122, e123,
+            e124, e125, e126, e127, e128, e129, e130, e131, e132, e133, e134, e135, e136, e137, e138, e139, e140, e141,
+            e142, e143, e144, e145, e146, e147, e148, e149, e150, e151, e152, e153, e154, e155, e156, e157, e158, e159,
+            e160, e161, e162, e163, e164, e165, e166, e167, e168, e169, e170, e171, e172, e173, e174, e175, e176, e177,
+            e178, e179, e180, e181, e182, e183, e184, e185, e186, e187, e188, e189, e190, e191, e192, e193, e194, e195,
+            e196, e197, e198, e199, e200, e201, e202, e203, e204, e205, e206, e207, e208, e209, e210, e211, e212, e213,
+            e214, e215, e216, e217, e218, e219, e220, e221, e222, e223, e224, e225, e226, e227, e228, e229, e230, e231,
+            e232, e233, e234, e235, e236, e237, e238, e239, e240, e241, e242, e243, e244, e245, e246, e247, e248, e249,
+            e250, e251, e252, e253, e254, e255, e256, e257, e258, e259, e260, e261, e262, e263, e264, e265, e266, e267,
+            e268, e269, e270, e271, e272, e273, e274, e275, e276, e277, e278, e279, e280, e281, e282, e283, e284, e285,
+            e286, e287, e288, e289, e290, e291, e292, e293, e294, e295, e296, e297, e298, e299, e300, e301, e302, e303,
+            e304, e305, e306, e307, e308, e309, e310, e311, e312, e313, e314, e315, e316, e317, e318, e319, e320, e321,
+            e322, e323, e324, e325, e326, e327, e328, e329, e330, e331, e332, e333, e334, e335, e336, e337, e338, e339,
+            e340, e341, e342, e343, e344, e345, e346, e347, e348, e349, e350, e351, e352, e353, e354, e355, e356, e357,
+            e358, e359, e360, e361, e362, e363, e364, e365, e366, e367, e368, e369, e370, e371, e372, e373, e374, e375,
+            e376, e377, e378, e379, e380, e381, e382, e383, e384, e385, e386, e387, e388, e389, e390, e391, e392, e393,
+            e394, e395, e396, e397, e398, e399, e400, e401, e402, e403, e404, e405, e406, e407, e408, e409, e410, e411,
+            e412, e413, e414, e415, e416, e417, e418, e419, e420, e421, e422, e423, e424, e425, e426, e427, e428, e429,
+            e430, e431, e432, e433, e434, e435, e436, e437, e438, e439, e440, e441, e442, e443, e444, e445, e446, e447,
+            e448, e449, e450, e451, e452, e453, e454, e455, e456, e457, e458, e459, e460, e461, e462, e463, e464, e465,
+            e466, e467, e468, e469, e470, e471, e472, e473, e474, e475, e476, e477, e478, e479, e480, e481, e482, e483,
+            e484, e485, e486, e487, e488, e489, e490, e491, e492, e493, e494, e495, e496, e497, e498, e499
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+            FROM station4
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+    )
+    GROUP BY event_idx
+    WINDOW TUMBLING(window_start, SIZE 31 SEC)))
+INTO prediction;
+----
+3,3.496288,41.979666,12.109838,52.471000

@@ -1,0 +1,266 @@
+# name: benchmark/TEAMPartitioning.test
+# description: Network traffic and processing-time latency of the default and the partitioned TEAM setup on four stations
+# groups: [TEAMBenchmark]
+
+# Queries 1 and 3 are the default and the partitioned prediction without any instrumentation, for the network
+# measurement. Queries 2 and 4 are the same predictions with CLOCK() timestamps (ms) for the processing-time latency
+# (Karimov et al., 2018): the output time minus the ingestion time of the last tuple that went into the window.
+#     last_ingest_ts    MAX of CLOCK() over the station sources, i.e. when the last sample entered the system
+#     station_done_ts   CLOCK() after the encoder on the station (partitioned only, MAX over the stations)
+#     sink_arrival_ts   MAX of CLOCK() in the window on sink-node, i.e. when the last tuple reached the sink
+#     output_ts         CLOCK() after the model on sink-node
+# The timestamps differ in every run, so queries 2 and 4 always fail their check; the measurement script reads their
+# result files instead. No GlobalConfiguration, so that the queries also run with systest --remote. Run with:
+#     systest -t nes-systests/benchmark/TEAMPartitioning.test -g TEAMBenchmark --clusterConfig nes-systests/configs/topologies/four-stations.yaml
+
+CREATE LOGICAL SOURCE stations(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
+    timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
+    latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
+CREATE PHYSICAL SOURCE FOR stations TYPE File SET('station-01:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.DUR.csv
+CREATE PHYSICAL SOURCE FOR stations TYPE File SET('station-02:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.LRNO.csv
+CREATE PHYSICAL SOURCE FOR stations TYPE File SET('station-03:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.MCLF.csv
+CREATE PHYSICAL SOURCE FOR stations TYPE File SET('station-04:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.PLTA.csv
+
+CREATE LOGICAL SOURCE station1(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
+    timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
+    latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
+CREATE PHYSICAL SOURCE FOR station1 TYPE File SET('station-01:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.DUR.csv
+CREATE LOGICAL SOURCE station2(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
+    timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
+    latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
+CREATE PHYSICAL SOURCE FOR station2 TYPE File SET('station-02:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.LRNO.csv
+CREATE LOGICAL SOURCE station3(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
+    timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
+    latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
+CREATE PHYSICAL SOURCE FOR station3 TYPE File SET('station-03:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.MCLF.csv
+CREATE LOGICAL SOURCE station4(event_idx UINT64 NOT NULL, station_slot UINT64 NOT NULL, sample_idx UINT64 NOT NULL,
+    timestamp_ms UINT64 NOT NULL, n FLOAT32 NOT NULL, e FLOAT32 NOT NULL, z FLOAT32 NOT NULL,
+    latitude FLOAT32 NOT NULL, longitude FLOAT32 NOT NULL, depth_km FLOAT32 NOT NULL);
+CREATE PHYSICAL SOURCE FOR station4 TYPE File SET('station-04:8080' AS "SOURCE"."HOST");
+ATTACH FILE model/team_baseline/stream_t5/IT.PLTA.csv
+
+CREATE MODEL teamBaseline ('model/team_baseline/saved_model_single_output')
+INPUT (waveforms VARSIZED, coords VARSIZED)
+OUTPUT (
+    mag0_alpha FLOAT32, mag0_mu FLOAT32, mag0_sigma FLOAT32,
+    mag1_alpha FLOAT32, mag1_mu FLOAT32, mag1_sigma FLOAT32,
+    mag2_alpha FLOAT32, mag2_mu FLOAT32, mag2_sigma FLOAT32,
+    mag3_alpha FLOAT32, mag3_mu FLOAT32, mag3_sigma FLOAT32,
+    mag4_alpha FLOAT32, mag4_mu FLOAT32, mag4_sigma FLOAT32,
+    loc0_alpha FLOAT32, loc0_lat FLOAT32, loc0_lon FLOAT32, loc0_depth FLOAT32, loc0_sigma_lat FLOAT32, loc0_sigma_lon FLOAT32, loc0_sigma_depth FLOAT32,
+    loc1_alpha FLOAT32, loc1_lat FLOAT32, loc1_lon FLOAT32, loc1_depth FLOAT32, loc1_sigma_lat FLOAT32, loc1_sigma_lon FLOAT32, loc1_sigma_depth FLOAT32,
+    loc2_alpha FLOAT32, loc2_lat FLOAT32, loc2_lon FLOAT32, loc2_depth FLOAT32, loc2_sigma_lat FLOAT32, loc2_sigma_lon FLOAT32, loc2_sigma_depth FLOAT32,
+    loc3_alpha FLOAT32, loc3_lat FLOAT32, loc3_lon FLOAT32, loc3_depth FLOAT32, loc3_sigma_lat FLOAT32, loc3_sigma_lon FLOAT32, loc3_sigma_depth FLOAT32,
+    loc4_alpha FLOAT32, loc4_lat FLOAT32, loc4_lon FLOAT32, loc4_depth FLOAT32, loc4_sigma_lat FLOAT32, loc4_sigma_lon FLOAT32, loc4_sigma_depth FLOAT32,
+    loc5_alpha FLOAT32, loc5_lat FLOAT32, loc5_lon FLOAT32, loc5_depth FLOAT32, loc5_sigma_lat FLOAT32, loc5_sigma_lon FLOAT32, loc5_sigma_depth FLOAT32,
+    loc6_alpha FLOAT32, loc6_lat FLOAT32, loc6_lon FLOAT32, loc6_depth FLOAT32, loc6_sigma_lat FLOAT32, loc6_sigma_lon FLOAT32, loc6_sigma_depth FLOAT32,
+    loc7_alpha FLOAT32, loc7_lat FLOAT32, loc7_lon FLOAT32, loc7_depth FLOAT32, loc7_sigma_lat FLOAT32, loc7_sigma_lon FLOAT32, loc7_sigma_depth FLOAT32,
+    loc8_alpha FLOAT32, loc8_lat FLOAT32, loc8_lon FLOAT32, loc8_depth FLOAT32, loc8_sigma_lat FLOAT32, loc8_sigma_lon FLOAT32, loc8_sigma_depth FLOAT32,
+    loc9_alpha FLOAT32, loc9_lat FLOAT32, loc9_lon FLOAT32, loc9_depth FLOAT32, loc9_sigma_lat FLOAT32, loc9_sigma_lon FLOAT32, loc9_sigma_depth FLOAT32,
+    loc10_alpha FLOAT32, loc10_lat FLOAT32, loc10_lon FLOAT32, loc10_depth FLOAT32, loc10_sigma_lat FLOAT32, loc10_sigma_lon FLOAT32, loc10_sigma_depth FLOAT32,
+    loc11_alpha FLOAT32, loc11_lat FLOAT32, loc11_lon FLOAT32, loc11_depth FLOAT32, loc11_sigma_lat FLOAT32, loc11_sigma_lon FLOAT32, loc11_sigma_depth FLOAT32,
+    loc12_alpha FLOAT32, loc12_lat FLOAT32, loc12_lon FLOAT32, loc12_depth FLOAT32, loc12_sigma_lat FLOAT32, loc12_sigma_lon FLOAT32, loc12_sigma_depth FLOAT32,
+    loc13_alpha FLOAT32, loc13_lat FLOAT32, loc13_lon FLOAT32, loc13_depth FLOAT32, loc13_sigma_lat FLOAT32, loc13_sigma_lon FLOAT32, loc13_sigma_depth FLOAT32,
+    loc14_alpha FLOAT32, loc14_lat FLOAT32, loc14_lon FLOAT32, loc14_depth FLOAT32, loc14_sigma_lat FLOAT32, loc14_sigma_lon FLOAT32, loc14_sigma_depth FLOAT32);
+
+CREATE MODEL teamEncoder ('model/team_baseline/team_encoder')
+INPUT (waveform VARSIZED)
+OUTPUT (embedding VARSIZED);
+
+CREATE MODEL teamHead ('model/team_baseline/team_head')
+INPUT (embeddings VARSIZED, coords VARSIZED, mask VARSIZED)
+OUTPUT (
+    mag0_alpha FLOAT32, mag0_mu FLOAT32, mag0_sigma FLOAT32,
+    mag1_alpha FLOAT32, mag1_mu FLOAT32, mag1_sigma FLOAT32,
+    mag2_alpha FLOAT32, mag2_mu FLOAT32, mag2_sigma FLOAT32,
+    mag3_alpha FLOAT32, mag3_mu FLOAT32, mag3_sigma FLOAT32,
+    mag4_alpha FLOAT32, mag4_mu FLOAT32, mag4_sigma FLOAT32,
+    loc0_alpha FLOAT32, loc0_lat FLOAT32, loc0_lon FLOAT32, loc0_depth FLOAT32, loc0_sigma_lat FLOAT32, loc0_sigma_lon FLOAT32, loc0_sigma_depth FLOAT32,
+    loc1_alpha FLOAT32, loc1_lat FLOAT32, loc1_lon FLOAT32, loc1_depth FLOAT32, loc1_sigma_lat FLOAT32, loc1_sigma_lon FLOAT32, loc1_sigma_depth FLOAT32,
+    loc2_alpha FLOAT32, loc2_lat FLOAT32, loc2_lon FLOAT32, loc2_depth FLOAT32, loc2_sigma_lat FLOAT32, loc2_sigma_lon FLOAT32, loc2_sigma_depth FLOAT32,
+    loc3_alpha FLOAT32, loc3_lat FLOAT32, loc3_lon FLOAT32, loc3_depth FLOAT32, loc3_sigma_lat FLOAT32, loc3_sigma_lon FLOAT32, loc3_sigma_depth FLOAT32,
+    loc4_alpha FLOAT32, loc4_lat FLOAT32, loc4_lon FLOAT32, loc4_depth FLOAT32, loc4_sigma_lat FLOAT32, loc4_sigma_lon FLOAT32, loc4_sigma_depth FLOAT32,
+    loc5_alpha FLOAT32, loc5_lat FLOAT32, loc5_lon FLOAT32, loc5_depth FLOAT32, loc5_sigma_lat FLOAT32, loc5_sigma_lon FLOAT32, loc5_sigma_depth FLOAT32,
+    loc6_alpha FLOAT32, loc6_lat FLOAT32, loc6_lon FLOAT32, loc6_depth FLOAT32, loc6_sigma_lat FLOAT32, loc6_sigma_lon FLOAT32, loc6_sigma_depth FLOAT32,
+    loc7_alpha FLOAT32, loc7_lat FLOAT32, loc7_lon FLOAT32, loc7_depth FLOAT32, loc7_sigma_lat FLOAT32, loc7_sigma_lon FLOAT32, loc7_sigma_depth FLOAT32,
+    loc8_alpha FLOAT32, loc8_lat FLOAT32, loc8_lon FLOAT32, loc8_depth FLOAT32, loc8_sigma_lat FLOAT32, loc8_sigma_lon FLOAT32, loc8_sigma_depth FLOAT32,
+    loc9_alpha FLOAT32, loc9_lat FLOAT32, loc9_lon FLOAT32, loc9_depth FLOAT32, loc9_sigma_lat FLOAT32, loc9_sigma_lon FLOAT32, loc9_sigma_depth FLOAT32,
+    loc10_alpha FLOAT32, loc10_lat FLOAT32, loc10_lon FLOAT32, loc10_depth FLOAT32, loc10_sigma_lat FLOAT32, loc10_sigma_lon FLOAT32, loc10_sigma_depth FLOAT32,
+    loc11_alpha FLOAT32, loc11_lat FLOAT32, loc11_lon FLOAT32, loc11_depth FLOAT32, loc11_sigma_lat FLOAT32, loc11_sigma_lon FLOAT32, loc11_sigma_depth FLOAT32,
+    loc12_alpha FLOAT32, loc12_lat FLOAT32, loc12_lon FLOAT32, loc12_depth FLOAT32, loc12_sigma_lat FLOAT32, loc12_sigma_lon FLOAT32, loc12_sigma_depth FLOAT32,
+    loc13_alpha FLOAT32, loc13_lat FLOAT32, loc13_lon FLOAT32, loc13_depth FLOAT32, loc13_sigma_lat FLOAT32, loc13_sigma_lon FLOAT32, loc13_sigma_depth FLOAT32,
+    loc14_alpha FLOAT32, loc14_lat FLOAT32, loc14_lon FLOAT32, loc14_depth FLOAT32, loc14_sigma_lat FLOAT32, loc14_sigma_lon FLOAT32, loc14_sigma_depth FLOAT32);
+
+CREATE SINK prediction(event_idx UINT64 NOT NULL, magnitude FLOAT32 NOT NULL,
+    latitude FLOAT64 NOT NULL, longitude FLOAT64 NOT NULL, depth_km FLOAT64 NOT NULL) TYPE File;
+CREATE SINK defaultLatency(event_idx UINT64 NOT NULL, magnitude FLOAT32 NOT NULL, last_ingest_ts UINT64 NOT NULL,
+    sink_arrival_ts UINT64 NOT NULL, output_ts UINT64 NOT NULL) TYPE File;
+CREATE SINK partitionedLatency(event_idx UINT64 NOT NULL, magnitude FLOAT32 NOT NULL, last_ingest_ts UINT64 NOT NULL,
+    station_done_ts UINT64 NOT NULL, sink_arrival_ts UINT64 NOT NULL, output_ts UINT64 NOT NULL) TYPE File;
+
+# Default: the stations send their raw samples, sink-node assembles the inputs and runs the full model.
+SELECT event_idx,
+    mag0_alpha * mag0_mu + mag1_alpha * mag1_mu + mag2_alpha * mag2_mu + mag3_alpha * mag3_mu + mag4_alpha * mag4_mu AS magnitude,
+    (loc0_alpha * loc0_lat + loc1_alpha * loc1_lat + loc2_alpha * loc2_lat + loc3_alpha * loc3_lat + loc4_alpha * loc4_lat
+        + loc5_alpha * loc5_lat + loc6_alpha * loc6_lat + loc7_alpha * loc7_lat + loc8_alpha * loc8_lat + loc9_alpha * loc9_lat
+        + loc10_alpha * loc10_lat + loc11_alpha * loc11_lat + loc12_alpha * loc12_lat + loc13_alpha * loc13_lat + loc14_alpha * loc14_lat)
+        * 100.0 / 111.195 + 42.0 AS latitude,
+    (loc0_alpha * loc0_lon + loc1_alpha * loc1_lon + loc2_alpha * loc2_lon + loc3_alpha * loc3_lon + loc4_alpha * loc4_lon
+        + loc5_alpha * loc5_lon + loc6_alpha * loc6_lon + loc7_alpha * loc7_lon + loc8_alpha * loc8_lon + loc9_alpha * loc9_lon
+        + loc10_alpha * loc10_lon + loc11_alpha * loc11_lon + loc12_alpha * loc12_lon + loc13_alpha * loc13_lon + loc14_alpha * loc14_lon)
+        * 100.0 / 111.195 + 12.0 AS longitude,
+    (loc0_alpha * loc0_depth + loc1_alpha * loc1_depth + loc2_alpha * loc2_depth + loc3_alpha * loc3_depth + loc4_alpha * loc4_depth
+        + loc5_alpha * loc5_depth + loc6_alpha * loc6_depth + loc7_alpha * loc7_depth + loc8_alpha * loc8_depth + loc9_alpha * loc9_depth
+        + loc10_alpha * loc10_depth + loc11_alpha * loc11_depth + loc12_alpha * loc12_depth + loc13_alpha * loc13_depth + loc14_alpha * loc14_depth)
+        * 100.0 AS depth_km
+FROM MODEL_INFERENCE(teamBaseline, (
+    SELECT event_idx,
+        TENSOR_AGG(n, e, z AT (station_slot, sample_idx) SHAPE (25, 3000, 3)) AS waveforms,
+        TENSOR_AGG(latitude, longitude, depth_km AT (station_slot) SHAPE (25, 3)) AS coords
+    FROM stations
+    GROUP BY event_idx
+    WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+INTO prediction;
+----
+3,3.496288,41.979666,12.109838,52.471000
+
+SELECT event_idx, mag0_alpha * mag0_mu + mag1_alpha * mag1_mu + mag2_alpha * mag2_mu + mag3_alpha * mag3_mu + mag4_alpha * mag4_mu AS magnitude, last_ingest_ts, sink_arrival_ts, CLOCK() AS output_ts
+FROM MODEL_INFERENCE(teamBaseline, (
+    SELECT event_idx,
+        TENSOR_AGG(n, e, z AT (station_slot, sample_idx) SHAPE (25, 3000, 3)) AS waveforms,
+        TENSOR_AGG(latitude, longitude, depth_km AT (station_slot) SHAPE (25, 3)) AS coords,
+        MAX(ingest_ts) AS last_ingest_ts, MAX(CLOCK()) AS sink_arrival_ts
+    FROM (SELECT event_idx, station_slot, sample_idx, timestamp_ms, n, e, z, latitude, longitude, depth_km, CLOCK() AS ingest_ts
+          FROM stations)
+    GROUP BY event_idx
+    WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+INTO defaultLatency;
+----
+3,3.496288,0,0,0
+
+# Partitioned: every station encodes its own window, sink-node stacks the embeddings and runs the head.
+SELECT event_idx,
+    mag0_alpha * mag0_mu + mag1_alpha * mag1_mu + mag2_alpha * mag2_mu + mag3_alpha * mag3_mu + mag4_alpha * mag4_mu AS magnitude,
+    (loc0_alpha * loc0_lat + loc1_alpha * loc1_lat + loc2_alpha * loc2_lat + loc3_alpha * loc3_lat +
+        loc4_alpha * loc4_lat + loc5_alpha * loc5_lat + loc6_alpha * loc6_lat + loc7_alpha * loc7_lat +
+        loc8_alpha * loc8_lat + loc9_alpha * loc9_lat + loc10_alpha * loc10_lat + loc11_alpha * loc11_lat +
+        loc12_alpha * loc12_lat + loc13_alpha * loc13_lat + loc14_alpha * loc14_lat)
+        * 100.0 / 111.195 + 42.0 AS latitude,
+    (loc0_alpha * loc0_lon + loc1_alpha * loc1_lon + loc2_alpha * loc2_lon + loc3_alpha * loc3_lon +
+        loc4_alpha * loc4_lon + loc5_alpha * loc5_lon + loc6_alpha * loc6_lon + loc7_alpha * loc7_lon +
+        loc8_alpha * loc8_lon + loc9_alpha * loc9_lon + loc10_alpha * loc10_lon + loc11_alpha * loc11_lon +
+        loc12_alpha * loc12_lon + loc13_alpha * loc13_lon + loc14_alpha * loc14_lon)
+        * 100.0 / 111.195 + 12.0 AS longitude,
+    (loc0_alpha * loc0_depth + loc1_alpha * loc1_depth + loc2_alpha * loc2_depth + loc3_alpha * loc3_depth +
+        loc4_alpha * loc4_depth + loc5_alpha * loc5_depth + loc6_alpha * loc6_depth + loc7_alpha * loc7_depth +
+        loc8_alpha * loc8_depth + loc9_alpha * loc9_depth + loc10_alpha * loc10_depth + loc11_alpha * loc11_depth +
+        loc12_alpha * loc12_depth + loc13_alpha * loc13_depth + loc14_alpha * loc14_depth)
+        * 100.0 AS depth_km
+FROM MODEL_INFERENCE(teamHead, (
+    SELECT event_idx,
+        TENSOR_AGG(embedding AT (station_slot) SHAPE (25, 500)) AS embeddings,
+        TENSOR_AGG(lat, lon, depth AT (station_slot) SHAPE (25, 3)) AS coords,
+        TENSOR_AGG(FLOAT32(1) AT (station_slot) SHAPE (25)) AS mask
+    FROM (
+        SELECT event_idx, station_slot, window_start, lat, lon, depth, embedding
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+            FROM station1
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+        UNION
+        SELECT event_idx, station_slot, window_start, lat, lon, depth, embedding
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+            FROM station2
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+        UNION
+        SELECT event_idx, station_slot, window_start, lat, lon, depth, embedding
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+            FROM station3
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+        UNION
+        SELECT event_idx, station_slot, window_start, lat, lon, depth, embedding
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth
+            FROM station4
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+    )
+    GROUP BY event_idx
+    WINDOW TUMBLING(window_start, SIZE 31 SEC)))
+INTO prediction;
+----
+3,3.496288,41.979666,12.109838,52.471000
+
+SELECT event_idx, mag0_alpha * mag0_mu + mag1_alpha * mag1_mu + mag2_alpha * mag2_mu + mag3_alpha * mag3_mu + mag4_alpha * mag4_mu AS magnitude, last_ingest_ts, station_done_ts, sink_arrival_ts, CLOCK() AS output_ts
+FROM MODEL_INFERENCE(teamHead, (
+    SELECT event_idx,
+        TENSOR_AGG(embedding AT (station_slot) SHAPE (25, 500)) AS embeddings,
+        TENSOR_AGG(lat, lon, depth AT (station_slot) SHAPE (25, 3)) AS coords,
+        TENSOR_AGG(FLOAT32(1) AT (station_slot) SHAPE (25)) AS mask,
+        MAX(last_ingest_ts) AS last_ingest_ts, MAX(station_done_ts) AS station_done_ts, MAX(CLOCK()) AS sink_arrival_ts
+    FROM (
+        SELECT event_idx, station_slot, window_start, lat, lon, depth, embedding, last_ingest_ts, CLOCK() AS station_done_ts
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth, MAX(ingest_ts) AS last_ingest_ts
+            FROM (SELECT event_idx, station_slot, sample_idx, timestamp_ms, n, e, z, latitude, longitude, depth_km, CLOCK() AS ingest_ts
+                  FROM station1)
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+        UNION
+        SELECT event_idx, station_slot, window_start, lat, lon, depth, embedding, last_ingest_ts, CLOCK() AS station_done_ts
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth, MAX(ingest_ts) AS last_ingest_ts
+            FROM (SELECT event_idx, station_slot, sample_idx, timestamp_ms, n, e, z, latitude, longitude, depth_km, CLOCK() AS ingest_ts
+                  FROM station2)
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+        UNION
+        SELECT event_idx, station_slot, window_start, lat, lon, depth, embedding, last_ingest_ts, CLOCK() AS station_done_ts
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth, MAX(ingest_ts) AS last_ingest_ts
+            FROM (SELECT event_idx, station_slot, sample_idx, timestamp_ms, n, e, z, latitude, longitude, depth_km, CLOCK() AS ingest_ts
+                  FROM station3)
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+        UNION
+        SELECT event_idx, station_slot, window_start, lat, lon, depth, embedding, last_ingest_ts, CLOCK() AS station_done_ts
+        FROM MODEL_INFERENCE(teamEncoder, (
+            SELECT event_idx, station_slot, start AS window_start,
+                TENSOR_AGG(n, e, z AT (sample_idx) SHAPE (3000, 3)) AS waveform,
+                MIN(latitude) AS lat, MIN(longitude) AS lon, MIN(depth_km) AS depth, MAX(ingest_ts) AS last_ingest_ts
+            FROM (SELECT event_idx, station_slot, sample_idx, timestamp_ms, n, e, z, latitude, longitude, depth_km, CLOCK() AS ingest_ts
+                  FROM station4)
+            GROUP BY event_idx, station_slot
+            WINDOW TUMBLING(timestamp_ms, SIZE 31 SEC)))
+    )
+    GROUP BY event_idx
+    WINDOW TUMBLING(window_start, SIZE 31 SEC)))
+INTO partitionedLatency;
+----
+3,3.496288,0,0,0,0

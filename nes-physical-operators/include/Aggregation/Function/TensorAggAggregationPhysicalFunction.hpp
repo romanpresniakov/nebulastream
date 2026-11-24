@@ -47,6 +47,7 @@ public:
         std::vector<PhysicalFunction> indexFunctions,
         std::vector<DataType> indexTypes,
         std::vector<uint64_t> indexDimensions,
+        uint64_t rowWidth,
         float defaultValue);
 
     void lift(
@@ -82,6 +83,8 @@ private:
     std::vector<uint64_t> indexDimensions;
     float defaultValue;
     uint64_t numberOfRows;
+    uint64_t rowWidth;
+    bool isVarsized;
     bool hasNullFlags;
     uint64_t entrySize;
 };

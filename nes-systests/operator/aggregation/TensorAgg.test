@@ -5,6 +5,8 @@
 # TENSOR_AGG(v_1, ..., v_k AT (i_1, ..., i_m) SHAPE (d_1, ..., d_m, k) DEFAULT x) returns d_1 * ... * d_m * k float32
 # values, row-major, as VARSIZED bytes. The expected payloads below are Base64 of little-endian float32; the comment
 # above each query lists the decoded values.
+# A single VARSIZED value field holds a whole row of float32 values instead (e.g. a model's output tensor). SHAPE then
+# has to list the row width as its last axis, and every row must have exactly row width * 4 bytes.
 
 GlobalConfiguration worker.query_engine.number_of_worker_threads: [1, 4]
 
@@ -93,6 +95,64 @@ ATTACH INLINE
 CREATE PHYSICAL SOURCE FOR partialRows TYPE File;
 ATTACH INLINE
 0,,2.0,3
+
+# Rows of two float32 values as Base64, in shuffled order: [5, 6] at 2, [1, 2] at 0, [3, 4] at 1.
+CREATE LOGICAL SOURCE rowBlobs(i UINT64 NOT NULL, r VARSIZED NOT NULL, ts UINT64 NOT NULL);
+CREATE PHYSICAL SOURCE FOR rowBlobs TYPE File;
+ATTACH INLINE
+2,AACgQAAAwEA=,1
+0,AACAPwAAAEA=,3
+1,AABAQAAAgEA=,2
+
+# Rows of a 2 x 2 grid of two-value cells: [1, 2], [3, 4], [5, 6], [7, 8].
+CREATE LOGICAL SOURCE gridBlobs(station UINT64 NOT NULL, slot UINT64 NOT NULL, r VARSIZED NOT NULL, ts UINT64 NOT NULL);
+CREATE PHYSICAL SOURCE FOR gridBlobs TYPE File;
+ATTACH INLINE
+1,1,AADgQAAAAEE=,1
+0,1,AABAQAAAgEA=,2
+1,0,AACgQAAAwEA=,3
+0,0,AACAPwAAAEA=,4
+
+# Rows of two keys spread over two physical sources: id 1 is [1, 2], [3, 4] and id 2 is [10, 20], [30, 40].
+CREATE LOGICAL SOURCE stationBlobs(id UINT64 NOT NULL, i UINT64 NOT NULL, r VARSIZED NOT NULL, ts UINT64 NOT NULL);
+CREATE PHYSICAL SOURCE FOR stationBlobs TYPE File;
+ATTACH INLINE
+1,0,AACAPwAAAEA=,1
+2,1,AADwQQAAIEI=,2
+
+CREATE PHYSICAL SOURCE FOR stationBlobs TYPE File;
+ATTACH INLINE
+2,0,AAAgQQAAoEE=,1
+1,1,AABAQAAAgEA=,2
+
+# Two rows per position. Position 0: [1, 2] at the later timestamp (5) arrives before [7, 8]. Position 1: [3, 4] and
+# [5, 6] at equal timestamps.
+CREATE LOGICAL SOURCE duplicateBlobs(i UINT64 NOT NULL, r VARSIZED NOT NULL, ts UINT64 NOT NULL);
+CREATE PHYSICAL SOURCE FOR duplicateBlobs TYPE File;
+ATTACH INLINE
+0,AACAPwAAAEA=,5
+0,AADgQAAAAEE=,3
+1,AABAQAAAgEA=,4
+1,AACgQAAAwEA=,4
+
+# TENSOR_AGG copies the bytes of a VARSIZED row as they are, so 8 ASCII characters are a row of two float32 values.
+# The NULL row at position 0 is later than "AAAABBBB"; position 1 is never written.
+CREATE LOGICAL SOURCE textRows(i UINT64 NOT NULL, r VARSIZED, ts UINT64 NOT NULL);
+CREATE PHYSICAL SOURCE FOR textRows TYPE File;
+ATTACH INLINE
+0,AAAABBBB,1
+0,,2
+2,CCCCDDDD,3
+
+# Six rows of 500 float32 values (row i holds i * 1000 + j at column j) in shuffled order, so the entries span several
+# pages. wide_tensor.csv holds the expected 8 x 500 tensor as Base64, with rows 6 and 7 at the default 0.
+CREATE LOGICAL SOURCE wideRows(i UINT64 NOT NULL, r VARSIZED NOT NULL, ts UINT64 NOT NULL);
+CREATE PHYSICAL SOURCE FOR wideRows TYPE File;
+ATTACH FILE small/tensor_agg/wide_rows.csv
+
+CREATE LOGICAL SOURCE wideTensor(tensor VARSIZED NOT NULL);
+CREATE PHYSICAL SOURCE FOR wideTensor TYPE File;
+ATTACH FILE small/tensor_agg/wide_tensor.csv
 
 CREATE SINK tensorSink(tensor VARSIZED NOT NULL) TYPE File;
 CREATE SINK windowedTensorSink(start UINT64 NOT NULL, end UINT64 NOT NULL, tensor VARSIZED NOT NULL) TYPE File;
@@ -211,6 +271,108 @@ ERROR 2007
 # Index fields must be integers.
 SELECT TO_BASE64(TENSOR_AGG(v AT (v) SHAPE (3))) AS tensor
 FROM cells
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+----
+ERROR 2007
+
+# VARSIZED rows: every row lands at its position, independent of arrival order: [[1, 2], [3, 4], [5, 6]].
+SELECT TO_BASE64(TENSOR_AGG(FROM_BASE64(r) AT (i) SHAPE (3, 2))) AS tensor
+FROM rowBlobs
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+----
+AACAPwAAAEAAAEBAAACAQAAAoEAAAMBA
+
+# A row that is never written keeps the default in all of its cells: [[1, 2], [-1, -1], [5, 6]].
+SELECT TO_BASE64(TENSOR_AGG(FROM_BASE64(r) AT (i) SHAPE (3, 2) DEFAULT -1)) AS tensor
+FROM rowBlobs
+WHERE NOT (i = UINT64(1))
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+----
+AACAPwAAAEAAAIC/AACAvwAAoEAAAMBA
+
+# Two index axes select the row: [[[1, 2], [3, 4]], [[5, 6], [7, 8]]].
+SELECT TO_BASE64(TENSOR_AGG(FROM_BASE64(r) AT (station, slot) SHAPE (2, 2, 2))) AS tensor
+FROM gridBlobs
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+----
+AACAPwAAAEAAAEBAAACAQAAAoEAAAMBAAADgQAAAAEE=
+
+# Each key's tensor combines rows from both physical sources: id 1 is [[1, 2], [3, 4]], id 2 is [[10, 20], [30, 40]].
+SELECT id, TO_BASE64(TENSOR_AGG(FROM_BASE64(r) AT (i) SHAPE (2, 2))) AS tensor
+FROM stationBlobs
+GROUP BY id
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO keyedTensorSink;
+----
+1,AACAPwAAAEAAAEBAAACAQA==
+2,AAAgQQAAoEEAAPBBAAAgQg==
+
+# A whole row is replaced: the later timestamp wins even though it arrived first (position 0: [1, 2]), and at equal
+# timestamps the row later in the stream wins (position 1: [5, 6]).
+SELECT TO_BASE64(TENSOR_AGG(FROM_BASE64(r) AT (i) SHAPE (2, 2))) AS tensor
+FROM duplicateBlobs
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+----
+AACAPwAAAEAAAKBAAADAQA==
+
+# A NULL row is skipped, so position 0 keeps the earlier "AAAABBBB"; position 1 stays at the default 0:
+# "AAAABBBB", 8 zero bytes, "CCCCDDDD".
+SELECT TO_BASE64(TENSOR_AGG(r AT (i) SHAPE (3, 2))) AS tensor
+FROM textRows
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+----
+QUFBQUJCQkIAAAAAAAAAAENDQ0NERERE
+
+# Rows as wide as a TEAM station embedding (500 values) fill 8 * 500 * 4 bytes.
+SELECT OCTET_LENGTH(TENSOR_AGG(FROM_BASE64(r) AT (i) SHAPE (8, 500))) AS bytes
+FROM wideRows
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO bytesSink;
+----
+16000
+
+# The wide tensor is byte for byte the one Python builds.
+SELECT TO_BASE64(TENSOR_AGG(FROM_BASE64(r) AT (i) SHAPE (8, 500))) AS tensor
+FROM wideRows
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+====
+SELECT tensor
+FROM wideTensor
+INTO tensorSink;
+
+# Every VARSIZED row must have exactly row width * 4 bytes; the rows have 8 bytes, but SHAPE asks for 3 values.
+SELECT TO_BASE64(TENSOR_AGG(FROM_BASE64(r) AT (i) SHAPE (3, 3))) AS tensor
+FROM rowBlobs
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+----
+ERROR 2008
+
+# With a VARSIZED value, SHAPE must list the row width; it cannot be left out.
+SELECT TO_BASE64(TENSOR_AGG(FROM_BASE64(r) AT (i) SHAPE (3))) AS tensor
+FROM rowBlobs
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+----
+ERROR 2007
+
+# A VARSIZED value cannot be combined with other value fields, neither numeric nor VARSIZED.
+SELECT TO_BASE64(TENSOR_AGG(FROM_BASE64(r), FLOAT32(1) AT (i) SHAPE (3, 2))) AS tensor
+FROM rowBlobs
+WINDOW TUMBLING(ts, SIZE 1000 MS)
+INTO tensorSink;
+----
+ERROR 2007
+
+SELECT TO_BASE64(TENSOR_AGG(FROM_BASE64(r), FROM_BASE64(r) AT (i) SHAPE (3, 2))) AS tensor
+FROM rowBlobs
 WINDOW TUMBLING(ts, SIZE 1000 MS)
 INTO tensorSink;
 ----

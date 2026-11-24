@@ -50,14 +50,14 @@ std::string explainFields(const std::vector<AggregationFieldAccess>& functions, 
     return fmt::format("{}", fmt::join(explained, ", "));
 }
 
-void validateLayout(const size_t numberOfValues, const size_t numberOfIndices, const std::vector<uint64_t>& shape)
+void validateLayout(const size_t numberOfValues, const size_t numberOfIndices, const std::vector<uint64_t>& shape, const bool isVarsized)
 {
     if (numberOfValues == 0 || numberOfIndices == 0)
     {
         throw CannotInferStamp("TENSOR_AGG requires at least one value field and one index field.");
     }
-    const bool valueAxisListed = shape.size() == numberOfIndices + 1 && shape.back() == numberOfValues;
-    const bool valueAxisOmitted = shape.size() == numberOfIndices && numberOfValues == 1;
+    const bool valueAxisListed = shape.size() == numberOfIndices + 1 && (isVarsized || shape.back() == numberOfValues);
+    const bool valueAxisOmitted = !isVarsized && shape.size() == numberOfIndices && numberOfValues == 1;
     if (!valueAxisListed && !valueAxisOmitted)
     {
         throw CannotInferStamp(
@@ -172,19 +172,20 @@ bool TensorAggAggregationLogicalFunction::operator==(const TensorAggAggregationL
 
 TensorAggAggregationLogicalFunction TensorAggAggregationLogicalFunction::withInferredType(const Schema<Field, Unordered>& schema) const
 {
-    validateLayout(valueFunctions.size(), indexFunctions.size(), shape);
-
     std::vector<AggregationFieldAccess> inferredValues;
+    bool isOneElemVarsized = false;
     for (const auto& valueFunction : valueFunctions)
     {
         auto value = inferFieldAccess(valueFunction, schema);
-        if (!value->getDataType().isNumeric())
+        isOneElemVarsized = valueFunctions.size() == 1 && value->getDataType().isType(DataType::Type::VARSIZED);
+        if (!value->getDataType().isNumeric() && !isOneElemVarsized)
         {
             throw CannotInferStamp(
                 "TENSOR_AGG requires numeric value fields, but {} is {}.", value->getField().getLastName(), value->getDataType());
         }
         inferredValues.emplace_back(value);
     }
+    validateLayout(valueFunctions.size(), indexFunctions.size(), shape, isOneElemVarsized);
 
     std::vector<AggregationFieldAccess> inferredIndices;
     for (const auto& indexFunction : indexFunctions)

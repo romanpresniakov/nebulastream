@@ -38,11 +38,13 @@
 #include <Runtime/TupleBuffer.hpp>
 #include <Time/Timestamp.hpp>
 #include <nautilus/function.hpp>
+#include <nautilus/std/cstring.h>
 #include <AggregationPhysicalFunctionRegistry.hpp>
 #include <ErrorHandling.hpp>
 #include <ExecutionContext.hpp>
 #include <val_arith.hpp>
 #include <val_bool.hpp>
+#include <val_memcpy.hpp>
 #include <val_ptr.hpp>
 
 namespace NES
@@ -79,6 +81,15 @@ struct EntryHeader
 };
 
 constexpr uint64_t ENTRY_ALIGNMENT = 8;
+
+void checkRowSize(uint64_t expectedBytes, uint64_t actualBytes)
+{
+    if (actualBytes != expectedBytes)
+    {
+        throw UnsupportedQuery(
+            "TENSOR_AGG expects VARSIZED rows of {} bytes (SHAPE row width * 4), but got {}", expectedBytes, actualBytes);
+    }
+}
 
 void createPageList(TensorAggState* state, TupleBuffer* parentBuffer, AbstractBufferProvider* bufferProvider)
 {
@@ -235,6 +246,7 @@ TensorAggAggregationPhysicalFunction::TensorAggAggregationPhysicalFunction(
     std::vector<PhysicalFunction> indexFunctions,
     std::vector<DataType> indexTypes,
     std::vector<uint64_t> indexDimensions,
+    uint64_t rowWidth,
     const float defaultValue)
     : AggregationPhysicalFunction(valueTypes.front(), std::move(resultType), valueFunctions.front(), std::move(resultFieldIdentifier))
     , valueFunctions(std::move(valueFunctions))
@@ -244,9 +256,16 @@ TensorAggAggregationPhysicalFunction::TensorAggAggregationPhysicalFunction(
     , indexDimensions(std::move(indexDimensions))
     , defaultValue(defaultValue)
     , numberOfRows(std::accumulate(this->indexDimensions.begin(), this->indexDimensions.end(), uint64_t{1}, std::multiplies<>()))
-    , hasNullFlags(std::ranges::any_of(this->valueTypes, [](const DataType& type) { return type.nullable; }))
-    , entrySize(entrySizeFor(this->valueFunctions.size(), hasNullFlags))
+    , rowWidth(rowWidth)
+    , isVarsized(this->valueTypes.front().isType(DataType::Type::VARSIZED))
+    , hasNullFlags(!isVarsized && std::ranges::any_of(this->valueTypes, [](const DataType& type) { return type.nullable; }))
+    , entrySize(entrySizeFor(rowWidth, hasNullFlags))
 {
+    PRECONDITION(
+        this->isVarsized || this->rowWidth == this->valueFunctions.size(),
+        "TENSOR_AGG row width {} must equal the number of value fields {}",
+        this->rowWidth,
+        this->valueFunctions.size());
     PRECONDITION(this->valueFunctions.size() == this->valueTypes.size(), "TENSOR_AGG needs a type for every value function");
     PRECONDITION(
         this->indexFunctions.size() == this->indexTypes.size() && this->indexFunctions.size() == this->indexDimensions.size(),
@@ -274,6 +293,30 @@ void TensorAggAggregationPhysicalFunction::lift(
             insideTensor = insideTensor && not index.isNull();
         }
         row = row * nautilus::val<uint64_t>{indexDimensions[i]} + index.getRawValueAs<nautilus::val<uint64_t>>();
+    }
+
+    if (isVarsized)
+    {
+        const auto value = valueFunctions[0].execute(record, pipelineMemoryProvider.arena);
+        if (insideTensor && (not valueTypes[0].nullable || not value.isNull()))
+        {
+            const auto blob = value.getRawValueAs<VariableSizedData>();
+            const auto rowBytes = nautilus::val<uint64_t>{rowWidth * sizeof(float)};
+            nautilus::invoke(checkRowSize, rowBytes, blob.getSize());
+            const auto values = nautilus::invoke(
+                appendEntry,
+                static_cast<nautilus::val<TensorAggState*>>(aggregationState),
+                parentBuffer.asArg(),
+                pipelineMemoryProvider.bufferProvider,
+                nautilus::val<uint64_t>{entrySize},
+                row,
+                timestamp.convertToValue(),
+                inputBuffer.originId,
+                inputBuffer.sequenceNumber,
+                inputBuffer.chunkNumber);
+            nautilus::memcpy(values, blob.getContent(), rowBytes);
+        }
+        return;
     }
 
     if (insideTensor)
@@ -333,7 +376,7 @@ Record TensorAggAggregationPhysicalFunction::lower(
     BorrowedNautilusBuffer parentBuffer,
     PipelineMemoryProvider& pipelineMemoryProvider)
 {
-    const auto tensorBytes = nautilus::val<uint64_t>{numberOfRows * valueFunctions.size() * sizeof(float)};
+    const auto tensorBytes = nautilus::val<uint64_t>{numberOfRows * rowWidth * sizeof(float)};
     auto payload = pipelineMemoryProvider.arena.allocateVariableSizedData(tensorBytes);
     nautilus::invoke(
         materializeTensor,
@@ -341,7 +384,7 @@ Record TensorAggAggregationPhysicalFunction::lower(
         parentBuffer.asArg(),
         payload.getContent(),
         nautilus::val<uint64_t>{numberOfRows},
-        nautilus::val<uint64_t>{valueFunctions.size()},
+        nautilus::val<uint64_t>{rowWidth},
         nautilus::val<float>{defaultValue},
         nautilus::val<uint64_t>{entrySize},
         nautilus::val<uint64_t>{hasNullFlags ? uint64_t{1} : uint64_t{0}});
@@ -397,6 +440,7 @@ TensorAggAggregationPhysicalFunction::create(AggregationPhysicalFunctionRegistry
 
     const auto& shape = logical->getShape();
     std::vector<uint64_t> indexDimensions(shape.begin(), shape.begin() + static_cast<std::ptrdiff_t>(numberOfIndices));
+    const uint64_t rowWidth = shape.size() > numberOfIndices ? shape.back() : 1;
     return std::make_shared<TensorAggAggregationPhysicalFunction>(
         std::move(arguments.resultType),
         std::move(arguments.resultFieldIdentifier),
@@ -405,6 +449,7 @@ TensorAggAggregationPhysicalFunction::create(AggregationPhysicalFunctionRegistry
         std::move(indexFunctions),
         std::move(indexTypes),
         std::move(indexDimensions),
+        rowWidth,
         logical->getDefaultValue());
 }
 }
